@@ -1,8 +1,8 @@
-# LazyWrap
+# lazywrap
 
 Lazy-start reverse proxy and local process supervisor for development services.
 
-LazyWrap keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
+`lazywrap` keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
 
 Written in Go.
 
@@ -10,7 +10,7 @@ Written in Go.
 
 Local development environments often require many services, but most of them do not need to run continuously.
 
-LazyWrap gives you one stable local endpoint while starting individual services only when traffic arrives.
+`lazywrap` gives you one stable local endpoint while starting individual services only when traffic arrives.
 
 ```text
 Client
@@ -48,7 +48,7 @@ Services remain stopped until requested.
 ## Installation
 
 ```bash
-go install github.com/YOUR_USERNAME/lazywrap@latest
+go install github.com/YOUR_USERNAME/lazywrap/cmd/lazywrap@latest
 ```
 
 Or build from source:
@@ -56,7 +56,7 @@ Or build from source:
 ```bash
 git clone https://github.com/YOUR_USERNAME/lazywrap.git
 cd lazywrap
-go build -o lazywrap .
+go build -o lazywrap ./cmd/lazywrap
 ```
 
 ## Usage
@@ -65,10 +65,10 @@ go build -o lazywrap .
 lazywrap -c /path/to/config.yaml
 ```
 
-Without `-c`, LazyWrap uses:
+Without `-c`, `lazywrap` uses:
 
 ```text
-~/.config/local-apps.yaml
+~/.config/lazywrap.yaml
 ```
 
 ## Configuration
@@ -77,6 +77,7 @@ Without `-c`, LazyWrap uses:
 port: 3000
 idle: 30m
 startTimeout: 30s
+stopTimeout: 10s
 logLevel: info
 
 apps:
@@ -95,9 +96,10 @@ apps:
 
 | Option         | Description                                        | Default  |
 | -------------- | -------------------------------------------------- | -------- |
-| `port`         | Port LazyWrap listens on                           | required |
+| `port`         | Port `lazywrap` listens on                         | `3000`   |
 | `idle`         | Default service idle timeout                       | `30m`    |
 | `startTimeout` | Maximum time to wait for a service to become ready | `30s`    |
+| `stopTimeout`  | Maximum time allowed for service shutdown          | `10s`    |
 | `logLevel`     | `debug`, `info`, `warning`, or `error`             | `info`   |
 
 ### Service options
@@ -108,7 +110,7 @@ apps:
 | `build`         | Optional command executed before starting the service          |
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
-| `path`          | Public route exposed by LazyWrap                               |
+| `path`          | Public route exposed by `lazywrap`                             |
 | `port`          | Local port used by the service                                 |
 | `idle`          | Overrides the global idle timeout                              |
 | `includePrefix` | Whether the configured route prefix is preserved when proxying |
@@ -131,7 +133,7 @@ apps:
     includePrefix: false
 ```
 
-Start LazyWrap:
+Start `lazywrap`:
 
 ```bash
 lazywrap
@@ -143,7 +145,7 @@ Then request:
 curl http://localhost:3000/service/api/hello
 ```
 
-If `api` is stopped, LazyWrap:
+If `api` is stopped, `lazywrap`:
 
 1. Starts the service.
 2. Waits for `localhost:1980` to accept connections.

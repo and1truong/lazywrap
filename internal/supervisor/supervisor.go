@@ -1,0 +1,51 @@
+package supervisor
+
+import (
+	"context"
+	"errors"
+	"lazywrap/internal/config"
+	proc "lazywrap/internal/process"
+	"log/slog"
+	"sync/atomic"
+)
+
+type Supervisor struct {
+	services map[string]*Service
+	logger   *slog.Logger
+	closing  atomic.Bool
+	cancel   context.CancelFunc
+}
+
+func New(c config.RuntimeConfig, r proc.ProcessRunner, l *slog.Logger) *Supervisor {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Supervisor{services: map[string]*Service{}, logger: l, cancel: cancel}
+	for id, a := range c.Apps {
+		s.services[id] = newService(ctx, a, r, l)
+	}
+	return s
+}
+func (s *Supervisor) Service(id string) *Service { return s.services[id] }
+func (s *Supervisor) Acquire(ctx context.Context, id string) (func(), error) {
+	if s.closing.Load() {
+		return nil, ErrClosing
+	}
+	v := s.services[id]
+	if v == nil {
+		return nil, errors.New("unknown service")
+	}
+	return v.Acquire(ctx)
+}
+func (s *Supervisor) StopAll(ctx context.Context) error {
+	s.closing.Store(true)
+	s.cancel()
+	errs := make(chan error, len(s.services))
+	for _, v := range s.services {
+		go func(x *Service) { errs <- x.Stop(ctx) }(v)
+	}
+	for range s.services {
+		if e := <-errs; e != nil {
+			return e
+		}
+	}
+	return nil
+}
