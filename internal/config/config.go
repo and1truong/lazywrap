@@ -57,7 +57,7 @@ func DefaultPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, ".config", "local-apps.yaml"), nil
+	return filepath.Join(h, ".config", "lazywrap.yaml"), nil
 }
 func Load(path string) (RuntimeConfig, error) {
 	b, err := os.ReadFile(path)

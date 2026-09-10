@@ -2,8 +2,8 @@ package proxy
 
 import (
 	"errors"
-	"local-apps/internal/config"
-	"local-apps/internal/supervisor"
+	"lazywrap/internal/config"
+	"lazywrap/internal/supervisor"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"

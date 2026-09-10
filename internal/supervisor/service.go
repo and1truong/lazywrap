@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"local-apps/internal/config"
-	proc "local-apps/internal/process"
+	"lazywrap/internal/config"
+	proc "lazywrap/internal/process"
 )
 
 var ErrClosing = errors.New("supervisor is shutting down")

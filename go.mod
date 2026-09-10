@@ -1,4 +1,4 @@
-module local-apps
+module lazywrap
 
 go 1.22
 

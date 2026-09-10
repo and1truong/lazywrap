@@ -25,6 +25,16 @@ func TestNormalizeDefaultsAndPath(t *testing.T) {
 	}
 }
 
+func TestDefaultPathUsesLazywrapName(t *testing.T) {
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(path) != "lazywrap.yaml" {
+		t.Fatalf("default config path = %q", path)
+	}
+}
+
 func TestNormalizeIdleOverride(t *testing.T) {
 	c := baseConfig(t.TempDir())
 	c.Idle = Duration{time.Hour}

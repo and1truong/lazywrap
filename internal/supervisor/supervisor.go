@@ -3,8 +3,8 @@ package supervisor
 import (
 	"context"
 	"errors"
-	"local-apps/internal/config"
-	proc "local-apps/internal/process"
+	"lazywrap/internal/config"
+	proc "lazywrap/internal/process"
 	"log/slog"
 	"sync/atomic"
 )
