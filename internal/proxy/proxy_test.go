@@ -89,7 +89,10 @@ func (r *lifecycleRunner) counts(id string) (starts, stops int) {
 	return r.starts[id], r.stops[id]
 }
 
-type backendRequest struct{ path, query, method, body, host, header string }
+type backendRequest struct {
+	path, query, method, body, host, header     string
+	forwardedHost, forwardedFor, forwardedProto string
+}
 
 func backendPort(t *testing.T, rawURL string) int {
 	t.Helper()
@@ -115,7 +118,10 @@ func TestHandlerHostRoutingLifecycleAndPathCoexistence(t *testing.T) {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			mu.Lock()
-			requests[id] = append(requests[id], backendRequest{r.URL.Path, r.URL.RawQuery, r.Method, string(body), r.Host, r.Header.Get("X-Test")})
+			requests[id] = append(requests[id], backendRequest{
+				path: r.URL.Path, query: r.URL.RawQuery, method: r.Method, body: string(body), host: r.Host, header: r.Header.Get("X-Test"),
+				forwardedHost: r.Header.Get("X-Forwarded-Host"), forwardedFor: r.Header.Get("X-Forwarded-For"), forwardedProto: r.Header.Get("X-Forwarded-Proto"),
+			})
 			mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
 		}))
@@ -181,6 +187,9 @@ func TestHandlerHostRoutingLifecycleAndPathCoexistence(t *testing.T) {
 		}
 		if got.host != "127.0.0.1:"+strconv.Itoa(backendPort(t, fooBackend.URL)) {
 			t.Fatalf("backend Host = %q", got.host)
+		}
+		if got.forwardedHost != "FOO.LOCALHOST:3000" || got.forwardedFor != "192.0.2.1" || got.forwardedProto != "http" {
+			t.Fatalf("forwarding headers = %#v", got)
 		}
 	}
 	if len(barRequests) != 1 || barRequests[0].path != "/bar" || barRequests[0].query != "q=2" {

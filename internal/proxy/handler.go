@@ -28,6 +28,7 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 		cfg := a
 		p := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
+			pr.SetXForwarded()
 			// Local backends receive their own address as Host, rather than the
 			// wrapper's routing host. The original host remains in X-Forwarded-Host.
 			pr.Out.Host = target.Host
