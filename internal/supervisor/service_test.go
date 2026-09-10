@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -21,11 +22,12 @@ type fakeRunner struct {
 	ready  chan struct{}
 	done   chan struct{}
 	ln     net.Listener
+	runErr error
 }
 
 func (f *fakeRunner) Run(context.Context, proc.CommandSpec) error {
 	f.builds.Add(1)
-	return nil
+	return f.runErr
 }
 
 func (f *fakeRunner) Start(context.Context, proc.CommandSpec) (*proc.Process, error) {
@@ -119,4 +121,20 @@ func TestCancelledWaiterDoesNotCancelStartup(t *testing.T) {
 	}
 	_ = f.ln.Close()
 	close(f.done)
+}
+
+func TestStopReturnsStopCommandError(t *testing.T) {
+	stopErr := errors.New("stop failed")
+	f := &fakeRunner{runErr: stopErr}
+	s := newService(context.Background(), config.RuntimeAppConfig{
+		ID:          "api",
+		Pwd:         t.TempDir(),
+		Stop:        "stop",
+		StopTimeout: time.Second,
+	}, f, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.state = StateRunning
+
+	if err := s.Stop(context.Background()); !errors.Is(err, stopErr) {
+		t.Fatalf("Stop() error = %v, want %v", err, stopErr)
+	}
 }

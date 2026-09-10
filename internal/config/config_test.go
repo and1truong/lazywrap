@@ -35,6 +35,24 @@ func TestDefaultPathUsesLazywrapName(t *testing.T) {
 	}
 }
 
+func TestNormalizeExpandsHomeRelativePwd(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := baseConfig(t.TempDir())
+	app := c.Apps["api"]
+	app.Pwd = "~/"
+	c.Apps["api"] = app
+	cfg, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Apps["api"].Pwd != home {
+		t.Fatalf("pwd = %q, want %q", cfg.Apps["api"].Pwd, home)
+	}
+}
+
 func TestNormalizeIdleOverride(t *testing.T) {
 	c := baseConfig(t.TempDir())
 	c.Idle = Duration{Duration: time.Hour}

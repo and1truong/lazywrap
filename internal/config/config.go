@@ -63,6 +63,21 @@ func DefaultPath() (string, error) {
 	}
 	return filepath.Join(h, ".config", "lazywrap.yaml"), nil
 }
+
+func expandHomePath(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
+}
+
 func Load(path string) (RuntimeConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -128,13 +143,18 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if a.Pwd == "" {
 			return RuntimeConfig{}, fmt.Errorf("app %q: pwd is required", id)
 		}
-		st, err := os.Stat(a.Pwd)
+		pwd, err := expandHomePath(a.Pwd)
+		if err != nil {
+			return RuntimeConfig{}, fmt.Errorf("app %q: expand pwd: %w", id, err)
+		}
+		st, err := os.Stat(pwd)
 		if err != nil {
 			return RuntimeConfig{}, fmt.Errorf("app %q: pwd: %w", id, err)
 		}
 		if !st.IsDir() {
 			return RuntimeConfig{}, fmt.Errorf("app %q: pwd is not a directory", id)
 		}
+		a.Pwd = pwd
 		idle := c.Idle.Duration
 		if a.Idle != nil {
 			idle = a.Idle.Duration

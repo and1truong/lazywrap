@@ -268,13 +268,23 @@ func (s *Service) Stop(ctx context.Context) error {
 	case StateStopping:
 		ch := s.stopDone
 		s.mu.Unlock()
-		return wait(ctx, ch)
+		return s.waitForStop(ctx, ch)
 	default:
 		s.beginStopLocked()
+		ch := s.stopDone
 		s.mu.Unlock()
 		go s.stop()
-		return wait(ctx, s.stopDone)
+		return s.waitForStop(ctx, ch)
 	}
+}
+
+func (s *Service) waitForStop(ctx context.Context, done <-chan struct{}) error {
+	if err := wait(ctx, done); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopErr
 }
 func (s *Service) stop() {
 	s.logger.Info("stopping")

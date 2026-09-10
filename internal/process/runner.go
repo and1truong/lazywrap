@@ -49,7 +49,7 @@ type Runner struct{ Logger *slog.Logger }
 
 func NewRunner(l *slog.Logger) *Runner { return &Runner{Logger: l} }
 func (r *Runner) command(ctx context.Context, s CommandSpec) *exec.Cmd {
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", s.Command)
+	c := shellCommand(ctx, s.Command)
 	c.Dir = s.Dir
 	configureProcess(c)
 	return c
