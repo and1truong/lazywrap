@@ -53,6 +53,51 @@ func TestNormalizeExpandsHomeRelativePwd(t *testing.T) {
 	}
 }
 
+func TestNormalizeRoutingModes(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name     string
+		app      AppConfig
+		wantErr  string
+		wantHost string
+	}{
+		{"host only", AppConfig{Pwd: dir, Launch: "server", Host: "FOO.LocalHost", Port: 1980}, "", "foo.localhost"},
+		{"path only", AppConfig{Pwd: dir, Launch: "server", Path: "/service/foo", Port: 1980}, "", ""},
+		{"path and host", AppConfig{Pwd: dir, Launch: "server", Path: "/service/foo", Host: "foo.localhost", Port: 1980}, "exactly one of path or host is required", ""},
+		{"neither path nor host", AppConfig{Pwd: dir, Launch: "server", Port: 1980}, "exactly one of path or host is required", ""},
+		{"include prefix with host", AppConfig{Pwd: dir, Launch: "server", Host: "foo.localhost", Port: 1980, IncludePrefix: true}, "includePrefix is not supported", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Config{Apps: map[string]AppConfig{"api": tt.app}}
+			got, err := c.Normalize()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Apps["api"].Host != tt.wantHost {
+				t.Fatalf("host = %q, want %q", got.Apps["api"].Host, tt.wantHost)
+			}
+		})
+	}
+}
+
+func TestNormalizeRejectsDuplicateHosts(t *testing.T) {
+	dir := t.TempDir()
+	c := Config{Apps: map[string]AppConfig{
+		"foo": {Pwd: dir, Launch: "server", Host: "foo.localhost", Port: 1980},
+		"bar": {Pwd: dir, Launch: "server", Host: "FOO.LOCALHOST", Port: 1981},
+	}}
+	if _, err := c.Normalize(); err == nil || !strings.Contains(err.Error(), "duplicate host") {
+		t.Fatalf("error = %v, want duplicate host", err)
+	}
+}
+
 func TestNormalizeIdleOverride(t *testing.T) {
 	c := baseConfig(t.TempDir())
 	c.Idle = Duration{Duration: time.Hour}

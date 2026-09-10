@@ -13,3 +13,10 @@ apps:
     port: 1980
     idle: 5m
     includePrefix: false
+
+  docs:
+    pwd: /path/to/docs
+    launch: npm run dev
+    host: docs.localhost
+    port: 1988
+    idle: 5m

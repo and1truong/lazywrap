@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
+// rewrite applies path-routing-specific forwarding rules. Forwarding headers
+// are configured by Handler for both path- and host-routed requests.
 func rewrite(pr *httputil.ProxyRequest, prefix string, include bool) {
-	pr.SetXForwarded()
 	if include {
 		return
 	}
