@@ -54,10 +54,21 @@ go install github.com/YOUR_USERNAME/lazywrap/cmd/lazywrap@latest
 Or build from source:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lazywrap.git
+git clone https://github.com/and1truong/lazywrap.git
 cd lazywrap
 go build -o lazywrap ./cmd/lazywrap
 ```
+
+## Releases
+
+Pushing a semantic-version tag creates a GitHub release with checksums and archives for macOS, Linux, and Windows on AMD64 and ARM64:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow runs the test suite and `go vet`, then GoReleaser publishes the generated artifacts to [GitHub Releases](https://github.com/and1truong/lazywrap/releases).
 
 ## Usage
 
@@ -316,4 +327,4 @@ The initial goal is intentionally small:
 
 ## License
 
-TBD
+MIT
