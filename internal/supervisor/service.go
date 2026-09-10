@@ -57,7 +57,7 @@ func (s *Service) Acquire(ctx context.Context) (func(), error) {
 			s.startDone = make(chan struct{})
 			s.startErr = nil
 			ch := s.startDone
-			go s.start()
+			go s.start(ch)
 			s.mu.Unlock()
 			if e := wait(ctx, ch); e != nil {
 				return nil, e
@@ -92,13 +92,13 @@ func wait(ctx context.Context, ch <-chan struct{}) error {
 		return nil
 	}
 }
-func (s *Service) start() {
+func (s *Service) start(attempt chan struct{}) {
 	ctx, cancel := context.WithTimeout(s.lifecycle, s.cfg.StartTimeout)
 	defer cancel()
 	if s.cfg.Build != "" {
 		s.logger.Info("building")
 		if e := s.runner.Run(ctx, proc.CommandSpec{Command: s.cfg.Build, Dir: s.cfg.Pwd, Service: s.id, Kind: "build"}); e != nil {
-			s.fail(fmt.Errorf("build failed: %w", e))
+			s.fail(attempt, fmt.Errorf("build failed: %w", e))
 			return
 		}
 	}
@@ -113,7 +113,7 @@ func (s *Service) start() {
 	// The process uses the service lifecycle; only readiness is bounded by startTimeout.
 	p, e := s.runner.Start(s.lifecycle, proc.CommandSpec{Command: s.cfg.Launch, Dir: s.cfg.Pwd, Service: s.id, Kind: "launch"})
 	if e != nil {
-		s.fail(fmt.Errorf("launch failed: %w", e))
+		s.fail(attempt, fmt.Errorf("launch failed: %w", e))
 		return
 	}
 	s.mu.Lock()
@@ -130,7 +130,7 @@ func (s *Service) start() {
 		case <-timer.C:
 			_ = p.Kill()
 		}
-		s.fail(e)
+		s.fail(attempt, e)
 		return
 	}
 	s.mu.Lock()
@@ -140,11 +140,13 @@ func (s *Service) start() {
 	}
 	s.state = StateRunning
 	s.startErr = nil
-	close(s.startDone)
+	close(attempt)
 	s.scheduleIdleLocked()
 	s.mu.Unlock()
 	s.logger.Info("ready", "port", s.cfg.Port)
-	go s.watch(p)
+	if s.cfg.Stop == "" {
+		go s.watch(p)
+	}
 }
 func (s *Service) ready(ctx context.Context, p *proc.Process) error {
 	tick := time.NewTicker(100 * time.Millisecond)
@@ -158,17 +160,15 @@ func (s *Service) ready(ctx context.Context, p *proc.Process) error {
 			return nil
 		}
 		select {
-		case result, ok := <-done:
+		case <-done:
+			result := p.Result()
 			if s.cfg.Stop == "" {
-				if !ok {
-					return errors.New("launch exited before readiness")
-				}
 				if result.Err == nil {
 					return errors.New("launch exited before readiness")
 				}
 				return fmt.Errorf("launch exited: %w", result.Err)
 			}
-			if ok && result.Err != nil {
+			if result.Err != nil {
 				return fmt.Errorf("launch exited: %w", result.Err)
 			}
 			done = nil
@@ -178,22 +178,22 @@ func (s *Service) ready(ctx context.Context, p *proc.Process) error {
 		}
 	}
 }
-func (s *Service) fail(e error) {
+func (s *Service) fail(attempt chan struct{}, e error) {
 	s.mu.Lock()
+	if s.startDone != attempt || (s.state != StateBuilding && s.state != StateStarting) {
+		s.mu.Unlock()
+		return
+	}
 	s.state = StateFailed
 	s.startErr = e
-	if s.startDone != nil {
-		close(s.startDone)
-	}
+	close(attempt)
 	s.process = nil
 	s.mu.Unlock()
 	s.logger.Error("startup failed", "err", e)
 }
 func (s *Service) watch(p *proc.Process) {
-	r, ok := <-p.Done
-	if !ok {
-		return
-	}
+	<-p.Done
+	r := p.Result()
 	s.mu.Lock()
 	if s.process == p && s.state == StateRunning {
 		s.generation++
@@ -244,6 +244,7 @@ func (s *Service) idle(g uint64) {
 	go s.stop()
 }
 func (s *Service) beginStopLocked() {
+	wasStarting := s.state == StateBuilding || s.state == StateStarting
 	s.generation++
 	if s.idleTimer != nil {
 		s.idleTimer.Stop()
@@ -252,6 +253,11 @@ func (s *Service) beginStopLocked() {
 	s.state = StateStopping
 	s.stopDone = make(chan struct{})
 	s.stopErr = nil
+	if wasStarting && s.startDone != nil {
+		s.startErr = ErrClosing
+		close(s.startDone)
+		s.startDone = nil
+	}
 }
 func (s *Service) Stop(ctx context.Context) error {
 	s.mu.Lock()
@@ -280,8 +286,15 @@ func (s *Service) stop() {
 	var e error
 	if s.cfg.Stop != "" {
 		e = s.runner.Run(ctx, proc.CommandSpec{Command: s.cfg.Stop, Dir: s.cfg.Pwd, Service: s.id, Kind: "stop"})
-	}
-	if p != nil {
+		if p != nil {
+			select {
+			case <-p.Done:
+			case <-ctx.Done():
+				_ = p.Terminate()
+				_ = p.Kill()
+			}
+		}
+	} else if p != nil {
 		_ = p.Terminate()
 		select {
 		case <-p.Done:

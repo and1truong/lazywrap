@@ -19,7 +19,7 @@ type fakeRunner struct {
 	builds atomic.Int32
 	addr   string
 	ready  chan struct{}
-	done   chan proc.ProcessResult
+	done   chan struct{}
 	ln     net.Listener
 }
 
@@ -56,7 +56,7 @@ func TestConcurrentAcquireStartsOnce(t *testing.T) {
 	port := probe.Addr().(*net.TCPAddr).Port
 	addr := probe.Addr().String()
 	_ = probe.Close()
-	f := &fakeRunner{addr: addr, ready: make(chan struct{}), done: make(chan proc.ProcessResult)}
+	f := &fakeRunner{addr: addr, ready: make(chan struct{}), done: make(chan struct{})}
 	s := newService(context.Background(), config.RuntimeAppConfig{ID: "api", Pwd: t.TempDir(), Build: "build", Launch: "launch", Port: port, Idle: time.Hour, StartTimeout: time.Second, StopTimeout: time.Second}, f, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	const callers = 100
 	var wg sync.WaitGroup
@@ -98,7 +98,7 @@ func TestCancelledWaiterDoesNotCancelStartup(t *testing.T) {
 	port := probe.Addr().(*net.TCPAddr).Port
 	addr := probe.Addr().String()
 	_ = probe.Close()
-	f := &fakeRunner{addr: addr, ready: make(chan struct{}), done: make(chan proc.ProcessResult)}
+	f := &fakeRunner{addr: addr, ready: make(chan struct{}), done: make(chan struct{})}
 	s := newService(context.Background(), config.RuntimeAppConfig{ID: "api", Pwd: t.TempDir(), Launch: "launch", Port: port, Idle: time.Hour, StartTimeout: time.Second, StopTimeout: time.Second}, f, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)

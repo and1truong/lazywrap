@@ -14,9 +14,18 @@ type CommandSpec struct{ Command, Dir, Service, Kind string }
 type ProcessResult struct{ Err error }
 type Process struct {
 	Cmd       *exec.Cmd
-	Done      <-chan ProcessResult
+	Done      <-chan struct{}
 	terminate func() error
 	kill      func() error
+	mu        sync.RWMutex
+	result    ProcessResult
+}
+
+// Result returns the process result after Done has closed.
+func (p *Process) Result() ProcessResult {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.result
 }
 
 func (p *Process) Terminate() error {
@@ -50,7 +59,8 @@ func (r *Runner) Run(ctx context.Context, s CommandSpec) error {
 	if e != nil {
 		return e
 	}
-	return (<-p.Done).Err
+	<-p.Done
+	return p.Result().Err
 }
 func (r *Runner) Start(ctx context.Context, s CommandSpec) (*Process, error) {
 	c := r.command(ctx, s)
@@ -69,9 +79,17 @@ func (r *Runner) Start(ctx context.Context, s CommandSpec) (*Process, error) {
 	wg.Add(2)
 	go r.logStream(&wg, out, s, "stdout", slog.LevelInfo)
 	go r.logStream(&wg, errout, s, "stderr", slog.LevelWarn)
-	d := make(chan ProcessResult, 1)
-	go func() { e := c.Wait(); wg.Wait(); d <- ProcessResult{Err: e}; close(d) }()
-	return &Process{Cmd: c, Done: d, terminate: func() error { return terminateProcess(c) }, kill: func() error { return killProcess(c) }}, nil
+	d := make(chan struct{})
+	p := &Process{Cmd: c, Done: d, terminate: func() error { return terminateProcess(c) }, kill: func() error { return killProcess(c) }}
+	go func() {
+		e := c.Wait()
+		wg.Wait()
+		p.mu.Lock()
+		p.result = ProcessResult{Err: e}
+		p.mu.Unlock()
+		close(d)
+	}()
+	return p, nil
 }
 func (r *Runner) logStream(wg *sync.WaitGroup, rd io.Reader, s CommandSpec, stream string, level slog.Level) {
 	defer wg.Done()

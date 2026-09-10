@@ -37,8 +37,8 @@ func TestDefaultPathUsesLazywrapName(t *testing.T) {
 
 func TestNormalizeIdleOverride(t *testing.T) {
 	c := baseConfig(t.TempDir())
-	c.Idle = Duration{time.Hour}
-	override := Duration{time.Minute}
+	c.Idle = Duration{Duration: time.Hour}
+	override := Duration{Duration: time.Minute}
 	app := c.Apps["api"]
 	app.Idle = &override
 	c.Apps["api"] = app
@@ -90,5 +90,14 @@ func TestLoadRejectsBadDuration(t *testing.T) {
 	_ = os.WriteFile(p, []byte("idle: forever\n"), 0600)
 	if _, err := Load(p); err == nil {
 		t.Fatal("expected duration error")
+	}
+}
+
+func TestExplicitZeroDurationIsRejected(t *testing.T) {
+	zero := Duration{Duration: 0, set: true}
+	c := baseConfig(t.TempDir())
+	c.Idle = zero
+	if _, err := c.Normalize(); err == nil {
+		t.Fatal("expected explicit zero duration to be rejected")
 	}
 }

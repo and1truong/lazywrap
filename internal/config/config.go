@@ -10,7 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Duration struct{ time.Duration }
+type Duration struct {
+	time.Duration
+	set bool
+}
 
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	v, err := time.ParseDuration(n.Value)
@@ -18,6 +21,7 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 		return fmt.Errorf("invalid duration %q: %w", n.Value, err)
 	}
 	d.Duration = v
+	d.set = true
 	return nil
 }
 
@@ -74,13 +78,13 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 	if c.Port == 0 {
 		c.Port = 3000
 	}
-	if c.Idle.Duration == 0 {
+	if !c.Idle.set && c.Idle.Duration == 0 {
 		c.Idle.Duration = 30 * time.Minute
 	}
-	if c.StartTimeout.Duration == 0 {
+	if !c.StartTimeout.set && c.StartTimeout.Duration == 0 {
 		c.StartTimeout.Duration = 30 * time.Second
 	}
-	if c.StopTimeout.Duration == 0 {
+	if !c.StopTimeout.set && c.StopTimeout.Duration == 0 {
 		c.StopTimeout.Duration = 10 * time.Second
 	}
 	if c.LogLevel == "" {
