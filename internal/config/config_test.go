@@ -1,0 +1,84 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func baseConfig(dir string) Config {
+	return Config{Port: 3000, Apps: map[string]AppConfig{"api": {Pwd: dir, Launch: "server", Path: "/service/api/", Port: 1980}}}
+}
+
+func TestNormalizeDefaultsAndPath(t *testing.T) {
+	cfg, err := baseConfig(t.TempDir()).Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Apps["api"].Path != "/service/api" {
+		t.Fatalf("path = %q", cfg.Apps["api"].Path)
+	}
+	if cfg.Apps["api"].Idle != 30*time.Minute || cfg.StartTimeout != 30*time.Second || cfg.StopTimeout != 10*time.Second {
+		t.Fatalf("defaults not applied: %#v", cfg)
+	}
+}
+
+func TestNormalizeIdleOverride(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	c.Idle = Duration{time.Hour}
+	override := Duration{time.Minute}
+	app := c.Apps["api"]
+	app.Idle = &override
+	c.Apps["api"] = app
+	cfg, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Apps["api"].Idle != time.Minute {
+		t.Fatal("idle override not applied")
+	}
+}
+
+func TestValidation(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"bad port", func(c *Config) { c.Port = 70000 }, "invalid wrapper port"},
+		{"bad service port", func(c *Config) { a := c.Apps["api"]; a.Port = 0; c.Apps["api"] = a }, "invalid port"},
+		{"missing launch", func(c *Config) { a := c.Apps["api"]; a.Launch = ""; c.Apps["api"] = a }, "launch is required"},
+		{"bad path", func(c *Config) { a := c.Apps["api"]; a.Path = "api"; c.Apps["api"] = a }, "path must start"},
+		{"bad pwd", func(c *Config) { a := c.Apps["api"]; a.Pwd = file; c.Apps["api"] = a }, "not a directory"},
+		{"duplicate path", func(c *Config) {
+			c.Apps["web"] = AppConfig{Pwd: dir, Launch: "server", Path: "/service/api", Port: 1981}
+		}, "duplicate path"},
+		{"duplicate port", func(c *Config) { c.Apps["web"] = AppConfig{Pwd: dir, Launch: "server", Path: "/web", Port: 1980} }, "duplicate port"},
+		{"log level", func(c *Config) { c.LogLevel = "verbose" }, "invalid log level"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := baseConfig(dir)
+			tt.mutate(&c)
+			_, err := c.Normalize()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsBadDuration(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	_ = os.WriteFile(p, []byte("idle: forever\n"), 0600)
+	if _, err := Load(p); err == nil {
+		t.Fatal("expected duration error")
+	}
+}
