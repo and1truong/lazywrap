@@ -86,10 +86,12 @@ apps:
     build: /command/to/build/it
     launch: /command/to/start/it
     stop: /optional/command/to/stop/it
+    # Configure exactly one routing mode:
     path: /service/SERVICE_ID
+    # host: service-id.localhost
     port: 1980
     idle: 5m
-    includePrefix: false
+    includePrefix: false # path routing only
 ```
 
 ### Global options
@@ -110,10 +112,11 @@ apps:
 | `build`         | Optional command executed before starting the service          |
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
-| `path`          | Public route exposed by `lazywrap`                             |
+| `path`          | Public path prefix exposed by `lazywrap`; mutually exclusive with `host` |
+| `host`          | Exact hostname exposed by `lazywrap`; mutually exclusive with `path` |
 | `port`          | Local port used by the service                                 |
 | `idle`          | Overrides the global idle timeout                              |
-| `includePrefix` | Whether the configured route prefix is preserved when proxying |
+| `includePrefix` | Whether the configured path prefix is preserved; path routing only |
 
 ## Example
 
@@ -157,6 +160,23 @@ http://localhost:1980/hello
 
 4. Keeps the service running while it receives traffic.
 5. Stops it after five minutes without requests.
+
+## Host routing
+
+A service can be routed by its exact hostname instead of a path prefix:
+
+```yaml
+apps:
+  docs:
+    pwd: ~/code/docs
+    launch: npm run dev
+    host: docs.localhost
+    port: 1988
+```
+
+With wrapper port `3000`, `http://docs.localhost:3000/guide?q=1` is proxied to `http://127.0.0.1:1988/guide?q=1`. The path and query string are unchanged. Host matching is case-insensitive and ignores the wrapper port; it does not perform wildcard or suffix matching. `includePrefix` is not valid for host-routed services.
+
+Backends receive `Host: 127.0.0.1:<service-port>` so they identify the local target consistently; the incoming hostname is retained in `X-Forwarded-Host`.
 
 ## Path forwarding
 

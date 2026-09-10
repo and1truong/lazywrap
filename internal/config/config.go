@@ -39,6 +39,7 @@ type AppConfig struct {
 	Launch        string    `yaml:"launch"`
 	Stop          string    `yaml:"stop"`
 	Path          string    `yaml:"path"`
+	Host          string    `yaml:"host"`
 	Port          int       `yaml:"port"`
 	Idle          *Duration `yaml:"idle"`
 	IncludePrefix bool      `yaml:"includePrefix"`
@@ -50,10 +51,10 @@ type RuntimeConfig struct {
 	Apps                      map[string]RuntimeAppConfig
 }
 type RuntimeAppConfig struct {
-	ID, Pwd, Build, Launch, Stop, Path string
-	Port                               int
-	Idle, StartTimeout, StopTimeout    time.Duration
-	IncludePrefix                      bool
+	ID, Pwd, Build, Launch, Stop, Path, Host string
+	Port                                     int
+	Idle, StartTimeout, StopTimeout          time.Duration
+	IncludePrefix                            bool
 }
 
 func DefaultPath() (string, error) {
@@ -76,6 +77,14 @@ func expandHomePath(path string) (string, error) {
 		return home, nil
 	}
 	return filepath.Join(home, path[2:]), nil
+}
+
+func normalizeHost(host string) (string, error) {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.ContainsAny(host, " /\\@") || strings.Contains(host, ":") {
+		return "", fmt.Errorf("must be a hostname without a port")
+	}
+	return strings.ToLower(host), nil
 }
 
 func Load(path string) (RuntimeConfig, error) {
@@ -117,7 +126,7 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		return RuntimeConfig{}, fmt.Errorf("durations must be positive")
 	}
 	r := RuntimeConfig{Port: c.Port, LogLevel: c.LogLevel, StartTimeout: c.StartTimeout.Duration, StopTimeout: c.StopTimeout.Duration, Apps: make(map[string]RuntimeAppConfig, len(c.Apps))}
-	paths, ports := map[string]string{}, map[int]string{}
+	paths, hosts, ports := map[string]string{}, map[string]string{}, map[int]string{}
 	for id, a := range c.Apps {
 		if strings.TrimSpace(a.Launch) == "" {
 			return RuntimeConfig{}, fmt.Errorf("app %q: launch is required", id)
@@ -125,17 +134,35 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if a.Port < 1 || a.Port > 65535 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: invalid port %d", id, a.Port)
 		}
-		if a.Path == "" || !strings.HasPrefix(a.Path, "/") {
-			return RuntimeConfig{}, fmt.Errorf("app %q: path must start with /", id)
+		path, host := strings.TrimSpace(a.Path), strings.TrimSpace(a.Host)
+		if (path == "") == (host == "") {
+			return RuntimeConfig{}, fmt.Errorf("app %q: exactly one of path or host is required", id)
 		}
-		path := a.Path
-		if path != "/" {
-			path = strings.TrimRight(path, "/")
+		if host != "" {
+			if a.IncludePrefix {
+				return RuntimeConfig{}, fmt.Errorf("app %q: includePrefix is not supported with host routing", id)
+			}
+			var err error
+			host, err = normalizeHost(host)
+			if err != nil {
+				return RuntimeConfig{}, fmt.Errorf("app %q: host: %w", id, err)
+			}
+			if prior, ok := hosts[host]; ok {
+				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate host %q", prior, id, host)
+			}
+			hosts[host] = id
+		} else {
+			if !strings.HasPrefix(path, "/") {
+				return RuntimeConfig{}, fmt.Errorf("app %q: path must start with /", id)
+			}
+			if path != "/" {
+				path = strings.TrimRight(path, "/")
+			}
+			if prior, ok := paths[path]; ok {
+				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate path %q", prior, id, path)
+			}
+			paths[path] = id
 		}
-		if prior, ok := paths[path]; ok {
-			return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate path %q", prior, id, path)
-		}
-		paths[path] = id
 		if prior, ok := ports[a.Port]; ok {
 			return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate port %d", prior, id, a.Port)
 		}
@@ -162,7 +189,7 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if idle <= 0 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be positive", id)
 		}
-		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Path: path, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
+		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Path: path, Host: host, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
 	}
 	return r, nil
 }

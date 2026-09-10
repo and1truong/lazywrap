@@ -23,10 +23,18 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 	h := &Handler{supervisor: s, proxies: map[string]*httputil.ReverseProxy{}, logger: l}
 	routes := make([]Route, 0, len(c.Apps))
 	for id, a := range c.Apps {
-		routes = append(routes, Route{ID: id, Path: a.Path})
+		routes = append(routes, Route{ID: id, Path: a.Path, Host: a.Host})
 		target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(a.Port)}
 		cfg := a
-		p := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) { pr.SetURL(target); rewrite(pr, cfg.Path, cfg.IncludePrefix) }, ErrorHandler: func(w http.ResponseWriter, r *http.Request, e error) {
+		p := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			// Local backends receive their own address as Host, rather than the
+			// wrapper's routing host. The original host remains in X-Forwarded-Host.
+			pr.Out.Host = target.Host
+			if cfg.Host == "" {
+				rewrite(pr, cfg.Path, cfg.IncludePrefix)
+			}
+		}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, e error) {
 			l.Error("backend proxy failed", "service", cfg.ID, "err", e)
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 		}}
@@ -36,7 +44,7 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 	return h
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	route, ok := h.router.Match(r.URL.Path)
+	route, ok := h.router.Match(r.Host, r.URL.Path)
 	if !ok {
 		http.NotFound(w, r)
 		return
