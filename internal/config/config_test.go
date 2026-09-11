@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,6 +210,40 @@ func TestLoadAcceptsZeroAppIdle(t *testing.T) {
 	}
 	if cfg.Apps["kafka"].Idle != 0 {
 		t.Fatalf("idle = %s, want disabled", cfg.Apps["kafka"].Idle)
+	}
+}
+
+func TestLoadAcceptsLiteralPerAppEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lazywrap.yaml")
+	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %q\n    launch: server\n    port: 1980\n    env:\n      APP_ENV: development\n      EMPTY: \"\"\n      LITERAL: ${HOME}\n", dir)
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"APP_ENV": "development", "EMPTY": "", "LITERAL": "${HOME}"}
+	if got := cfg.Apps["api"].Env; !maps.Equal(got, want) {
+		t.Fatalf("env = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeCopiesPerAppEnvironment(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	app := c.Apps["api"]
+	app.Env = map[string]string{"APP_ENV": "development"}
+	c.Apps["api"] = app
+
+	cfg, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Env["APP_ENV"] = "production"
+
+	if got := cfg.Apps["api"].Env["APP_ENV"]; got != "development" {
+		t.Fatalf("runtime env changed to %q after source config mutation", got)
 	}
 }
 

@@ -9,6 +9,9 @@ apps:
     pwd: /path/to/api
     build: go build ./...
     launch: ./api
+    env:
+      APP_ENV: development
+      LOG_LEVEL: debug
     path: /service/api
     port: 1980
     idle: 5m

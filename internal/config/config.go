@@ -34,17 +34,18 @@ type Config struct {
 	Apps         map[string]AppConfig `yaml:"apps"`
 }
 type AppConfig struct {
-	Pwd           string    `yaml:"pwd"`
-	Build         string    `yaml:"build"`
-	Launch        string    `yaml:"launch"`
-	Stop          string    `yaml:"stop"`
-	Protocol      string    `yaml:"protocol"`
-	Path          string    `yaml:"path"`
-	Host          string    `yaml:"host"`
-	ListenPort    int       `yaml:"listenPort"`
-	Port          int       `yaml:"port"`
-	Idle          *Duration `yaml:"idle"`
-	IncludePrefix bool      `yaml:"includePrefix"`
+	Pwd           string            `yaml:"pwd"`
+	Build         string            `yaml:"build"`
+	Launch        string            `yaml:"launch"`
+	Stop          string            `yaml:"stop"`
+	Env           map[string]string `yaml:"env,omitempty"`
+	Protocol      string            `yaml:"protocol"`
+	Path          string            `yaml:"path"`
+	Host          string            `yaml:"host"`
+	ListenPort    int               `yaml:"listenPort"`
+	Port          int               `yaml:"port"`
+	Idle          *Duration         `yaml:"idle"`
+	IncludePrefix bool              `yaml:"includePrefix"`
 }
 type RuntimeConfig struct {
 	Port                      int
@@ -54,6 +55,7 @@ type RuntimeConfig struct {
 }
 type RuntimeAppConfig struct {
 	ID, Pwd, Build, Launch, Stop, Protocol, Path, Host string
+	Env                                               map[string]string
 	ListenPort, Port                                   int
 	Idle, StartTimeout, StopTimeout                    time.Duration
 	IncludePrefix                                      bool
@@ -225,7 +227,18 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if idle < 0 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be non-negative", id)
 		}
-		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
+		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: cloneStringMap(a.Env), Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
 	}
 	return r, nil
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }

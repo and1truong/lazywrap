@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,8 @@ import (
 )
 
 type fakeRunner struct {
+	mu     sync.Mutex
+	specs  []proc.CommandSpec
 	starts atomic.Int32
 	builds atomic.Int32
 	addr   string
@@ -25,12 +28,18 @@ type fakeRunner struct {
 	runErr error
 }
 
-func (f *fakeRunner) Run(context.Context, proc.CommandSpec) error {
+func (f *fakeRunner) Run(_ context.Context, spec proc.CommandSpec) error {
+	f.mu.Lock()
+	f.specs = append(f.specs, spec)
+	f.mu.Unlock()
 	f.builds.Add(1)
 	return f.runErr
 }
 
-func (f *fakeRunner) Start(context.Context, proc.CommandSpec) (*proc.Process, error) {
+func (f *fakeRunner) Start(_ context.Context, spec proc.CommandSpec) (*proc.Process, error) {
+	f.mu.Lock()
+	f.specs = append(f.specs, spec)
+	f.mu.Unlock()
 	f.starts.Add(1)
 	<-f.ready
 	ln, err := net.Listen("tcp", f.addr)
@@ -48,6 +57,12 @@ func (f *fakeRunner) Start(context.Context, proc.CommandSpec) (*proc.Process, er
 		}
 	}()
 	return &proc.Process{Done: f.done}, nil
+}
+
+func (f *fakeRunner) commandSpecs() []proc.CommandSpec {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]proc.CommandSpec(nil), f.specs...)
 }
 
 func TestConcurrentAcquireStartsOnce(t *testing.T) {
@@ -136,6 +151,48 @@ func TestStopReturnsStopCommandError(t *testing.T) {
 
 	if err := s.Stop(context.Background()); !errors.Is(err, stopErr) {
 		t.Fatalf("Stop() error = %v, want %v", err, stopErr)
+	}
+}
+
+func TestPerAppEnvironmentReachesAllLifecycleCommands(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := probe.Addr().(*net.TCPAddr).Port
+	addr := probe.Addr().String()
+	_ = probe.Close()
+	ready := make(chan struct{})
+	close(ready)
+	done := make(chan struct{})
+	f := &fakeRunner{addr: addr, ready: ready, done: done}
+	env := map[string]string{"APP_ENV": "development"}
+	s := newService(context.Background(), config.RuntimeAppConfig{
+		ID: "api", Pwd: t.TempDir(), Build: "build", Launch: "launch", Stop: "stop", Env: env,
+		Port: port, Idle: time.Hour, StartTimeout: time.Second, StopTimeout: time.Second,
+	}, f, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	release, err := s.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	close(done)
+	if err := s.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	specs := f.commandSpecs()
+	if len(specs) != 3 {
+		t.Fatalf("lifecycle commands = %d, want 3", len(specs))
+	}
+	for i, wantKind := range []string{"build", "launch", "stop"} {
+		if specs[i].Kind != wantKind {
+			t.Fatalf("command %d kind = %q, want %q", i, specs[i].Kind, wantKind)
+		}
+		if !maps.Equal(specs[i].Env, env) {
+			t.Fatalf("%s env = %#v, want %#v", wantKind, specs[i].Env, env)
+		}
 	}
 }
 

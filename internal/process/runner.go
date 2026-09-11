@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
-type CommandSpec struct{ Command, Dir, Service, Kind string }
+type CommandSpec struct {
+	Command, Dir, Service, Kind string
+	Env                         map[string]string
+}
 type ProcessResult struct{ Err error }
 type Process struct {
 	Cmd       *exec.Cmd
@@ -51,8 +56,27 @@ func NewRunner(l *slog.Logger) *Runner { return &Runner{Logger: l} }
 func (r *Runner) command(ctx context.Context, s CommandSpec) *exec.Cmd {
 	c := shellCommand(ctx, s.Command)
 	c.Dir = s.Dir
+	c.Env = mergeEnvironment(os.Environ(), s.Env)
 	configureProcess(c)
 	return c
+}
+
+func mergeEnvironment(parent []string, overrides map[string]string) []string {
+	env := make([]string, 0, len(parent)+len(overrides))
+	overridden := make(map[string]struct{}, len(overrides))
+	for key := range overrides {
+		overridden[key] = struct{}{}
+	}
+	for _, entry := range parent {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, ok := overridden[key]; !ok {
+			env = append(env, entry)
+		}
+	}
+	for key, value := range overrides {
+		env = append(env, key+"="+value)
+	}
+	return env
 }
 func (r *Runner) Run(ctx context.Context, s CommandSpec) error {
 	p, e := r.Start(ctx, s)
