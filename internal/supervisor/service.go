@@ -226,10 +226,14 @@ func (s *Service) release() {
 }
 func (s *Service) scheduleIdleLocked() {
 	s.generation++
-	g := s.generation
 	if s.idleTimer != nil {
 		s.idleTimer.Stop()
+		s.idleTimer = nil
 	}
+	if s.cfg.Idle == 0 {
+		return
+	}
+	g := s.generation
 	s.idleTimer = time.AfterFunc(s.cfg.Idle, func() { s.idle(g) })
 }
 func (s *Service) idle(g uint64) {
