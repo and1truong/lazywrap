@@ -314,6 +314,85 @@ func TestGRPCOpenStreamPreventsIdleShutdown(t *testing.T) {
 	}
 }
 
+func TestDrainServerWaitsForActiveH2CStream(t *testing.T) {
+	backendPort, stopBackend := startGRPCTestBackend(t)
+	defer stopBackend()
+	runner := newLifecycleRunner()
+	cfg := config.RuntimeConfig{Apps: map[string]config.RuntimeAppConfig{
+		"echo": {
+			ID: "echo", Pwd: t.TempDir(), Launch: "start", Stop: "stop",
+			Protocol: config.ProtocolGRPC, Host: "echo.localhost", Port: backendPort,
+			Idle: time.Hour, StartTimeout: time.Second, StopTimeout: time.Second,
+			GRPCHealth: true,
+		},
+	}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := supervisor.New(cfg, runner, logger)
+	drainer := NewDrainHandler(NewHandler(cfg, sup, logger))
+	http2Server := &http2.Server{}
+	wrapper := httptest.NewUnstartedServer(h2c.NewHandler(drainer, http2Server))
+	if err := http2.ConfigureServer(wrapper.Config, http2Server); err != nil {
+		t.Fatal(err)
+	}
+	connections := NewConnectionTracker()
+	wrapper.Listener = connections.Track(wrapper.Listener)
+	wrapper.Start()
+	defer wrapper.Close()
+
+	conn, err := grpc.NewClient(strings.TrimPrefix(wrapper.URL, "http://"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithAuthority("echo.localhost"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	stream, err := conn.NewStream(context.Background(), &grpcTestServiceDesc.Streams[2], "/"+grpcTestServiceName+"/Bidi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.SendMsg(wrapperspb.String("live")); err != nil {
+		t.Fatal(err)
+	}
+	out := new(wrapperspb.StringValue)
+	if err := stream.RecvMsg(out); err != nil || out.Value != "echo:live" {
+		t.Fatalf("bidi response = %q, %v", out.Value, err)
+	}
+
+	drainDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		drainDone <- DrainServer(ctx, wrapper.Config, drainer, connections)
+	}()
+	select {
+	case err := <-drainDone:
+		t.Fatalf("DrainServer returned with active h2c stream: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, stops := runner.counts("echo"); stops != 0 {
+		t.Fatalf("backend stops with active h2c stream = %d, want 0", stops)
+	}
+
+	if err := stream.CloseSend(); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.RecvMsg(new(wrapperspb.StringValue)); err != io.EOF {
+		t.Fatalf("bidi final error = %v, want EOF", err)
+	}
+	if err := <-drainDone; err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := sup.StopAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, stops := runner.counts("echo"); stops != 1 {
+		t.Fatalf("backend stops after drain = %d, want 1", stops)
+	}
+}
+
 func TestGRPCStartupTimeoutReturnsGRPCStatus(t *testing.T) {
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
