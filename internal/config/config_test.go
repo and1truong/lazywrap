@@ -65,7 +65,7 @@ func TestNormalizeRoutingModes(t *testing.T) {
 		{"host only", AppConfig{Pwd: dir, Launch: "server", Host: "FOO.LocalHost", Port: 1980}, "", "foo.localhost"},
 		{"path only", AppConfig{Pwd: dir, Launch: "server", Path: "/service/foo", Port: 1980}, "", ""},
 		{"path and host", AppConfig{Pwd: dir, Launch: "server", Path: "/service/foo", Host: "foo.localhost", Port: 1980}, "exactly one of path or host is required", ""},
-		{"neither path nor host", AppConfig{Pwd: dir, Launch: "server", Port: 1980}, "exactly one of path or host is required", ""},
+		{"neither path nor host", AppConfig{Pwd: dir, Launch: "server", Port: 1980}, "", "api.localhost"},
 		{"include prefix with host", AppConfig{Pwd: dir, Launch: "server", Host: "foo.localhost", Port: 1980, IncludePrefix: true}, "includePrefix is not supported", ""},
 	}
 	for _, tt := range tests {
@@ -85,6 +85,25 @@ func TestNormalizeRoutingModes(t *testing.T) {
 				t.Fatalf("host = %q, want %q", got.Apps["api"].Host, tt.wantHost)
 			}
 		})
+	}
+}
+
+func TestNormalizeAssignsDistinctDefaultHosts(t *testing.T) {
+	dir := t.TempDir()
+	c := Config{Apps: map[string]AppConfig{
+		"api": {Pwd: dir, Launch: "server", Port: 1980},
+		"web": {Pwd: dir, Launch: "server", Port: 1981},
+	}}
+
+	got, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Apps["api"].Host != "api.localhost" {
+		t.Fatalf("api host = %q, want %q", got.Apps["api"].Host, "api.localhost")
+	}
+	if got.Apps["web"].Host != "web.localhost" {
+		t.Fatalf("web host = %q, want %q", got.Apps["web"].Host, "web.localhost")
 	}
 }
 
