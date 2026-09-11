@@ -38,8 +38,10 @@ type AppConfig struct {
 	Build         string    `yaml:"build"`
 	Launch        string    `yaml:"launch"`
 	Stop          string    `yaml:"stop"`
+	Protocol      string    `yaml:"protocol"`
 	Path          string    `yaml:"path"`
 	Host          string    `yaml:"host"`
+	ListenPort    int       `yaml:"listenPort"`
 	Port          int       `yaml:"port"`
 	Idle          *Duration `yaml:"idle"`
 	IncludePrefix bool      `yaml:"includePrefix"`
@@ -51,11 +53,16 @@ type RuntimeConfig struct {
 	Apps                      map[string]RuntimeAppConfig
 }
 type RuntimeAppConfig struct {
-	ID, Pwd, Build, Launch, Stop, Path, Host string
-	Port                                     int
-	Idle, StartTimeout, StopTimeout          time.Duration
-	IncludePrefix                            bool
+	ID, Pwd, Build, Launch, Stop, Protocol, Path, Host string
+	ListenPort, Port                                   int
+	Idle, StartTimeout, StopTimeout                    time.Duration
+	IncludePrefix                                      bool
 }
+
+const (
+	ProtocolHTTP = "http"
+	ProtocolTCP  = "tcp"
+)
 
 func DefaultPath() (string, error) {
 	h, err := os.UserHomeDir()
@@ -126,7 +133,7 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		return RuntimeConfig{}, fmt.Errorf("durations must be positive")
 	}
 	r := RuntimeConfig{Port: c.Port, LogLevel: c.LogLevel, StartTimeout: c.StartTimeout.Duration, StopTimeout: c.StopTimeout.Duration, Apps: make(map[string]RuntimeAppConfig, len(c.Apps))}
-	paths, hosts, ports := map[string]string{}, map[string]string{}, map[int]string{}
+	paths, hosts, ports, listenPorts := map[string]string{}, map[string]string{}, map[int]string{}, map[int]string{}
 	for id, a := range c.Apps {
 		if strings.TrimSpace(a.Launch) == "" {
 			return RuntimeConfig{}, fmt.Errorf("app %q: launch is required", id)
@@ -134,34 +141,60 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if a.Port < 1 || a.Port > 65535 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: invalid port %d", id, a.Port)
 		}
-		path, host := strings.TrimSpace(a.Path), strings.TrimSpace(a.Host)
-		if (path == "") == (host == "") {
-			return RuntimeConfig{}, fmt.Errorf("app %q: exactly one of path or host is required", id)
+		protocol := strings.ToLower(strings.TrimSpace(a.Protocol))
+		if protocol == "" {
+			protocol = ProtocolHTTP
 		}
-		if host != "" {
-			if a.IncludePrefix {
-				return RuntimeConfig{}, fmt.Errorf("app %q: includePrefix is not supported with host routing", id)
+		path, host := strings.TrimSpace(a.Path), strings.TrimSpace(a.Host)
+		switch protocol {
+		case ProtocolHTTP:
+			if a.ListenPort != 0 {
+				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort is only supported with TCP", id)
 			}
-			var err error
-			host, err = normalizeHost(host)
-			if err != nil {
-				return RuntimeConfig{}, fmt.Errorf("app %q: host: %w", id, err)
+			if (path == "") == (host == "") {
+				return RuntimeConfig{}, fmt.Errorf("app %q: exactly one of path or host is required", id)
 			}
-			if prior, ok := hosts[host]; ok {
-				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate host %q", prior, id, host)
+			if host != "" {
+				if a.IncludePrefix {
+					return RuntimeConfig{}, fmt.Errorf("app %q: includePrefix is not supported with host routing", id)
+				}
+				var err error
+				host, err = normalizeHost(host)
+				if err != nil {
+					return RuntimeConfig{}, fmt.Errorf("app %q: host: %w", id, err)
+				}
+				if prior, ok := hosts[host]; ok {
+					return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate host %q", prior, id, host)
+				}
+				hosts[host] = id
+			} else {
+				if !strings.HasPrefix(path, "/") {
+					return RuntimeConfig{}, fmt.Errorf("app %q: path must start with /", id)
+				}
+				if path != "/" {
+					path = strings.TrimRight(path, "/")
+				}
+				if prior, ok := paths[path]; ok {
+					return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate path %q", prior, id, path)
+				}
+				paths[path] = id
 			}
-			hosts[host] = id
-		} else {
-			if !strings.HasPrefix(path, "/") {
-				return RuntimeConfig{}, fmt.Errorf("app %q: path must start with /", id)
+		case ProtocolTCP:
+			if path != "" || host != "" || a.IncludePrefix {
+				return RuntimeConfig{}, fmt.Errorf("app %q: path, host, and includePrefix are not supported with TCP", id)
 			}
-			if path != "/" {
-				path = strings.TrimRight(path, "/")
+			if a.ListenPort < 1 || a.ListenPort > 65535 {
+				return RuntimeConfig{}, fmt.Errorf("app %q: invalid listenPort %d", id, a.ListenPort)
 			}
-			if prior, ok := paths[path]; ok {
-				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate path %q", prior, id, path)
+			if a.ListenPort == c.Port {
+				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort %d conflicts with wrapper port", id, a.ListenPort)
 			}
-			paths[path] = id
+			if prior, ok := listenPorts[a.ListenPort]; ok {
+				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate listenPort %d", prior, id, a.ListenPort)
+			}
+			listenPorts[a.ListenPort] = id
+		default:
+			return RuntimeConfig{}, fmt.Errorf("app %q: invalid protocol %q", id, a.Protocol)
 		}
 		if prior, ok := ports[a.Port]; ok {
 			return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate port %d", prior, id, a.Port)
@@ -189,7 +222,7 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if idle <= 0 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be positive", id)
 		}
-		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Path: path, Host: host, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
+		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
 	}
 	return r, nil
 }
