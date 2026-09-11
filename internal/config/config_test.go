@@ -122,6 +122,46 @@ func TestNormalizeTCPRouting(t *testing.T) {
 	}
 }
 
+func TestNormalizeGRPCRouting(t *testing.T) {
+	dir := t.TempDir()
+	c := Config{Apps: map[string]AppConfig{
+		"greeter": {
+			Pwd: dir, Launch: "server", Protocol: "GRPC", Port: 50051,
+			Health: HealthConfig{GRPC: true},
+		},
+	}}
+	got, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := got.Apps["greeter"]
+	if app.Protocol != ProtocolGRPC || app.Host != "greeter.localhost" || !app.GRPCHealth {
+		t.Fatalf("gRPC app = %#v", app)
+	}
+}
+
+func TestNormalizeRejectsInvalidGRPCRouting(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name string
+		app  AppConfig
+		want string
+	}{
+		{"path", AppConfig{Pwd: dir, Launch: "server", Protocol: "grpc", Path: "/greeter", Port: 50051}, "not supported with gRPC"},
+		{"include prefix", AppConfig{Pwd: dir, Launch: "server", Protocol: "grpc", IncludePrefix: true, Port: 50051}, "not supported with gRPC"},
+		{"listen port", AppConfig{Pwd: dir, Launch: "server", Protocol: "grpc", ListenPort: 15051, Port: 50051}, "only supported with TCP"},
+		{"gRPC health on HTTP", AppConfig{Pwd: dir, Launch: "server", Protocol: "http", Port: 50051, Health: HealthConfig{GRPC: true}}, "only supported with gRPC"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := (Config{Apps: map[string]AppConfig{"greeter": tt.app}}).Normalize()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeRejectsInvalidTCPRouting(t *testing.T) {
 	dir := t.TempDir()
 	tests := []struct {

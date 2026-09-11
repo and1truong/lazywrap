@@ -24,6 +24,16 @@ apps:
     port: 1988
     idle: 5m
 
+  greeter:
+    pwd: /path/to/greeter
+    launch: go run ./cmd/server
+    protocol: grpc
+    host: greeter.localhost
+    port: 50051
+    idle: 5m
+    health:
+      grpc: true
+
   postgres:
     pwd: /path/to/project
     launch: docker compose up postgres

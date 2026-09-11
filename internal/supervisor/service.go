@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"lazywrap/internal/config"
 	proc "lazywrap/internal/process"
 )
@@ -152,6 +155,9 @@ func (s *Service) start(attempt chan struct{}) {
 	}
 }
 func (s *Service) ready(ctx context.Context, p *proc.Process) error {
+	if s.cfg.GRPCHealth {
+		return s.grpcReady(ctx, p)
+	}
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	addr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Port)
@@ -160,6 +166,45 @@ func (s *Service) ready(ctx context.Context, p *proc.Process) error {
 		c, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
 			_ = c.Close()
+			return nil
+		}
+		select {
+		case <-done:
+			result := p.Result()
+			if s.cfg.Stop == "" {
+				if result.Err == nil {
+					return errors.New("launch exited before readiness")
+				}
+				return fmt.Errorf("launch exited: %w", result.Err)
+			}
+			if result.Err != nil {
+				return fmt.Errorf("launch exited: %w", result.Err)
+			}
+			done = nil
+		case <-ctx.Done():
+			return fmt.Errorf("readiness timeout: %w", ctx.Err())
+		case <-tick.C:
+		}
+	}
+}
+
+func (s *Service) grpcReady(ctx context.Context, p *proc.Process) error {
+	addr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Port)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("create gRPC health client: %w", err)
+	}
+	defer conn.Close()
+
+	client := healthpb.NewHealthClient(conn)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	done := p.Done
+	for {
+		checkCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		response, checkErr := client.Check(checkCtx, &healthpb.HealthCheckRequest{})
+		cancel()
+		if checkErr == nil && response.GetStatus() == healthpb.HealthCheckResponse_SERVING {
 			return nil
 		}
 		select {

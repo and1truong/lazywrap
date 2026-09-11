@@ -46,6 +46,10 @@ type AppConfig struct {
 	Port          int               `yaml:"port"`
 	Idle          *Duration         `yaml:"idle"`
 	IncludePrefix bool              `yaml:"includePrefix"`
+	Health        HealthConfig      `yaml:"health"`
+}
+type HealthConfig struct {
+	GRPC bool `yaml:"grpc"`
 }
 type RuntimeConfig struct {
 	Port                      int
@@ -55,14 +59,16 @@ type RuntimeConfig struct {
 }
 type RuntimeAppConfig struct {
 	ID, Pwd, Build, Launch, Stop, Protocol, Path, Host string
-	Env                                               map[string]string
+	Env                                                map[string]string
 	ListenPort, Port                                   int
 	Idle, StartTimeout, StopTimeout                    time.Duration
 	IncludePrefix                                      bool
+	GRPCHealth                                         bool
 }
 
 const (
 	ProtocolHTTP = "http"
+	ProtocolGRPC = "grpc"
 	ProtocolTCP  = "tcp"
 )
 
@@ -184,6 +190,25 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 				}
 				paths[path] = id
 			}
+		case ProtocolGRPC:
+			if a.ListenPort != 0 {
+				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort is only supported with TCP", id)
+			}
+			if path != "" || a.IncludePrefix {
+				return RuntimeConfig{}, fmt.Errorf("app %q: path and includePrefix are not supported with gRPC", id)
+			}
+			if host == "" {
+				host = id + ".localhost"
+			}
+			var err error
+			host, err = normalizeHost(host)
+			if err != nil {
+				return RuntimeConfig{}, fmt.Errorf("app %q: host: %w", id, err)
+			}
+			if prior, ok := hosts[host]; ok {
+				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate host %q", prior, id, host)
+			}
+			hosts[host] = id
 		case ProtocolTCP:
 			if path != "" || host != "" || a.IncludePrefix {
 				return RuntimeConfig{}, fmt.Errorf("app %q: path, host, and includePrefix are not supported with TCP", id)
@@ -200,6 +225,9 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 			listenPorts[a.ListenPort] = id
 		default:
 			return RuntimeConfig{}, fmt.Errorf("app %q: invalid protocol %q", id, a.Protocol)
+		}
+		if a.Health.GRPC && protocol != ProtocolGRPC {
+			return RuntimeConfig{}, fmt.Errorf("app %q: health.grpc is only supported with gRPC", id)
 		}
 		if prior, ok := ports[a.Port]; ok {
 			return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate port %d", prior, id, a.Port)
@@ -230,7 +258,7 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if idle < 0 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be non-negative", id)
 		}
-		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: cloneStringMap(a.Env), Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
+		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: cloneStringMap(a.Env), Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix, GRPCHealth: a.Health.GRPC}
 	}
 	return r, nil
 }

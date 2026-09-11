@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"lazywrap/internal/config"
 	proc "lazywrap/internal/process"
 )
@@ -26,6 +29,16 @@ type fakeRunner struct {
 	done   chan struct{}
 	ln     net.Listener
 	runErr error
+}
+
+type immediateRunner struct {
+	done chan struct{}
+}
+
+func (r *immediateRunner) Run(context.Context, proc.CommandSpec) error { return nil }
+
+func (r *immediateRunner) Start(context.Context, proc.CommandSpec) (*proc.Process, error) {
+	return &proc.Process{Done: r.done}, nil
 }
 
 func (f *fakeRunner) Run(_ context.Context, spec proc.CommandSpec) error {
@@ -108,6 +121,48 @@ func TestConcurrentAcquireStartsOnce(t *testing.T) {
 	}
 	_ = f.ln.Close()
 	close(f.done)
+}
+
+func TestGRPCHealthReadinessWaitsForServing(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grpcServer := grpc.NewServer()
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+	go func() { _ = grpcServer.Serve(listener) }()
+	defer grpcServer.Stop()
+
+	runner := &immediateRunner{done: make(chan struct{})}
+	s := newService(context.Background(), config.RuntimeAppConfig{
+		ID: "api", Pwd: t.TempDir(), Launch: "launch", Port: listener.Addr().(*net.TCPAddr).Port,
+		Idle: time.Hour, StartTimeout: time.Second, StopTimeout: time.Second, GRPCHealth: true,
+	}, runner, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	result := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		release, err := s.Acquire(context.Background())
+		if release != nil {
+			release()
+		}
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("Acquire returned before SERVING: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed < 150*time.Millisecond {
+		t.Fatalf("Acquire returned after %s, before health became SERVING", elapsed)
+	}
+	close(runner.done)
 }
 
 func TestCancelledWaiterDoesNotCancelStartup(t *testing.T) {

@@ -1,15 +1,21 @@
 package proxy
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
 	"lazywrap/internal/config"
 	"lazywrap/internal/supervisor"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/http2"
+	"google.golang.org/grpc/codes"
 )
 
 type Handler struct {
@@ -26,7 +32,7 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 		if a.Protocol == config.ProtocolTCP {
 			continue
 		}
-		routes = append(routes, Route{ID: id, Path: a.Path, Host: a.Host})
+		routes = append(routes, Route{ID: id, Path: a.Path, Host: a.Host, Protocol: a.Protocol})
 		target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(a.Port)}
 		cfg := a
 		p := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
@@ -40,8 +46,21 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 			}
 		}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, e error) {
 			l.Error("backend proxy failed", "service", cfg.ID, "err", e)
+			if cfg.Protocol == config.ProtocolGRPC {
+				writeGRPCError(w, grpcCode(r.Context(), e), "backend unavailable")
+				return
+			}
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 		}}
+		if a.Protocol == config.ProtocolGRPC {
+			dialer := &net.Dialer{}
+			p.Transport = &http2.Transport{
+				AllowHTTP: true,
+				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+					return dialer.DialContext(ctx, network, addr)
+				},
+			}
+		}
 		h.proxies[id] = p
 	}
 	h.router = NewRouter(routes)
@@ -55,6 +74,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	release, e := h.supervisor.Acquire(r.Context(), route.ID)
 	if e != nil {
+		if route.Protocol == config.ProtocolGRPC {
+			if r.Context().Err() == nil && !errors.Is(e, r.Context().Err()) {
+				h.logger.Error("service unavailable", "service", route.ID, "err", e)
+			}
+			writeGRPCError(w, grpcCode(r.Context(), e), grpcMessage(r.Context(), e))
+			return
+		}
 		status := http.StatusServiceUnavailable
 		if strings.Contains(e.Error(), "readiness timeout") {
 			status = http.StatusGatewayTimeout
@@ -68,4 +94,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	h.logger.Debug("proxy request", "service", route.ID, "method", r.Method, "path", r.URL.Path)
 	h.proxies[route.ID].ServeHTTP(w, r)
+}
+
+func grpcCode(ctx context.Context, err error) codes.Code {
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+		return codes.Canceled
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "readiness timeout") {
+		return codes.DeadlineExceeded
+	}
+	return codes.Unavailable
+}
+
+func grpcMessage(ctx context.Context, err error) string {
+	switch grpcCode(ctx, err) {
+	case codes.Canceled:
+		return "request canceled"
+	case codes.DeadlineExceeded:
+		return "service startup timed out"
+	default:
+		return "service unavailable"
+	}
+}
+
+func writeGRPCError(w http.ResponseWriter, code codes.Code, message string) {
+	w.Header().Set("Content-Type", "application/grpc")
+	w.Header().Set("Grpc-Status", strconv.Itoa(int(code)))
+	w.Header().Set("Grpc-Message", url.PathEscape(message))
+	w.WriteHeader(http.StatusOK)
 }
