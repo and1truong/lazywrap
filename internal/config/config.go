@@ -205,6 +205,9 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 			return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate port %d", prior, id, a.Port)
 		}
 		ports[a.Port] = id
+		if err := validateEnvironment(a.Env); err != nil {
+			return RuntimeConfig{}, fmt.Errorf("app %q: %w", id, err)
+		}
 		if a.Pwd == "" {
 			return RuntimeConfig{}, fmt.Errorf("app %q: pwd is required", id)
 		}
@@ -241,4 +244,16 @@ func cloneStringMap(values map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func validateEnvironment(values map[string]string) error {
+	for key, value := range values {
+		if key == "" || strings.ContainsAny(key, "=\x00") {
+			return fmt.Errorf("invalid environment variable name %q", key)
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return fmt.Errorf("environment variable %q contains NUL", key)
+		}
+	}
+	return nil
 }

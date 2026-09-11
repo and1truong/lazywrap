@@ -247,6 +247,35 @@ func TestNormalizeCopiesPerAppEnvironment(t *testing.T) {
 	}
 }
 
+func TestNormalizeRejectsMalformedEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"empty name", map[string]string{"": "value"}, `invalid environment variable name ""`},
+		{"equals in name", map[string]string{"BAD=NAME": "value"}, `invalid environment variable name "BAD=NAME"`},
+		{"NUL in name", map[string]string{"BAD\x00NAME": "value"}, `invalid environment variable name "BAD\x00NAME"`},
+		{"NUL in value", map[string]string{"SECRET": "hidden\x00value"}, `environment variable "SECRET" contains NUL`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := baseConfig(t.TempDir())
+			app := c.Apps["api"]
+			app.Env = tt.env
+			c.Apps["api"] = app
+
+			_, err := c.Normalize()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			if strings.Contains(err.Error(), "hidden") {
+				t.Fatalf("error exposes environment value: %v", err)
+			}
+		})
+	}
+}
+
 func TestNormalizeRejectsNegativeAppIdle(t *testing.T) {
 	c := baseConfig(t.TempDir())
 	negative := Duration{Duration: -time.Second, set: true}
