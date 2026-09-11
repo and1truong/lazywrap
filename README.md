@@ -34,6 +34,7 @@ Services remain stopped until requested.
 * Proxy raw TCP traffic on per-service listener ports
 * Automatic idle shutdown
 * Per-service idle timeout
+* Per-service environment variables
 * Optional build command before launch
 * Configurable working directory
 * Optional custom stop command
@@ -98,6 +99,9 @@ apps:
     build: /command/to/build/it
     launch: /command/to/start/it
     stop: /optional/command/to/stop/it
+    env:
+      APP_ENV: development
+      LOG_LEVEL: debug
     protocol: http # http (default) or tcp
     # Optional HTTP routing override. If both are omitted, host defaults to
     # SERVICE_ID.localhost.
@@ -128,6 +132,7 @@ apps:
 | `build`         | Optional command executed before starting the service          |
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
+| `env`           | Environment variables for build, launch, and stop commands; app values override inherited variables |
 | `protocol`      | Proxy protocol: `http` (default) or `tcp`                       |
 | `path`          | Optional public path prefix; mutually exclusive with `host`              |
 | `host`          | Exact hostname; defaults to `<SERVICE_ID>.localhost` when `path` is omitted |
@@ -148,6 +153,9 @@ apps:
   api:
     pwd: ~/code/my-api
     launch: go run ./cmd/api
+    env:
+      APP_ENV: development
+      LOG_LEVEL: debug
     path: /service/api
     port: 1980
     idle: 5m

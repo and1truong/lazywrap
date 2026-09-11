@@ -38,6 +38,9 @@ func newService(ctx context.Context, c config.RuntimeAppConfig, r proc.ProcessRu
 }
 func (s *Service) Config() config.RuntimeAppConfig { return s.cfg }
 func (s *Service) State() State                    { s.mu.Lock(); defer s.mu.Unlock(); return s.state }
+func (s *Service) commandSpec(command, kind string) proc.CommandSpec {
+	return proc.CommandSpec{Command: command, Dir: s.cfg.Pwd, Service: s.id, Kind: kind, Env: s.cfg.Env}
+}
 func (s *Service) Acquire(ctx context.Context) (func(), error) {
 	for {
 		s.mu.Lock()
@@ -97,7 +100,7 @@ func (s *Service) start(attempt chan struct{}) {
 	defer cancel()
 	if s.cfg.Build != "" {
 		s.logger.Info("building")
-		if e := s.runner.Run(ctx, proc.CommandSpec{Command: s.cfg.Build, Dir: s.cfg.Pwd, Service: s.id, Kind: "build"}); e != nil {
+		if e := s.runner.Run(ctx, s.commandSpec(s.cfg.Build, "build")); e != nil {
 			s.fail(attempt, fmt.Errorf("build failed: %w", e))
 			return
 		}
@@ -111,7 +114,7 @@ func (s *Service) start(attempt chan struct{}) {
 	s.mu.Unlock()
 	s.logger.Info("starting")
 	// The process uses the service lifecycle; only readiness is bounded by startTimeout.
-	p, e := s.runner.Start(s.lifecycle, proc.CommandSpec{Command: s.cfg.Launch, Dir: s.cfg.Pwd, Service: s.id, Kind: "launch"})
+	p, e := s.runner.Start(s.lifecycle, s.commandSpec(s.cfg.Launch, "launch"))
 	if e != nil {
 		s.fail(attempt, fmt.Errorf("launch failed: %w", e))
 		return
@@ -299,7 +302,7 @@ func (s *Service) stop() {
 	defer cancel()
 	var e error
 	if s.cfg.Stop != "" {
-		e = s.runner.Run(ctx, proc.CommandSpec{Command: s.cfg.Stop, Dir: s.cfg.Pwd, Service: s.id, Kind: "stop"})
+		e = s.runner.Run(ctx, s.commandSpec(s.cfg.Stop, "stop"))
 		if p != nil {
 			select {
 			case <-p.Done:

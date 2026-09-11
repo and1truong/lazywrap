@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,6 +210,69 @@ func TestLoadAcceptsZeroAppIdle(t *testing.T) {
 	}
 	if cfg.Apps["kafka"].Idle != 0 {
 		t.Fatalf("idle = %s, want disabled", cfg.Apps["kafka"].Idle)
+	}
+}
+
+func TestLoadAcceptsLiteralPerAppEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lazywrap.yaml")
+	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %q\n    launch: server\n    port: 1980\n    env:\n      APP_ENV: development\n      EMPTY: \"\"\n      LITERAL: ${HOME}\n", dir)
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"APP_ENV": "development", "EMPTY": "", "LITERAL": "${HOME}"}
+	if got := cfg.Apps["api"].Env; !maps.Equal(got, want) {
+		t.Fatalf("env = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeCopiesPerAppEnvironment(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	app := c.Apps["api"]
+	app.Env = map[string]string{"APP_ENV": "development"}
+	c.Apps["api"] = app
+
+	cfg, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Env["APP_ENV"] = "production"
+
+	if got := cfg.Apps["api"].Env["APP_ENV"]; got != "development" {
+		t.Fatalf("runtime env changed to %q after source config mutation", got)
+	}
+}
+
+func TestNormalizeRejectsMalformedEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"empty name", map[string]string{"": "value"}, `invalid environment variable name ""`},
+		{"equals in name", map[string]string{"BAD=NAME": "value"}, `invalid environment variable name "BAD=NAME"`},
+		{"NUL in name", map[string]string{"BAD\x00NAME": "value"}, `invalid environment variable name "BAD\x00NAME"`},
+		{"NUL in value", map[string]string{"SECRET": "hidden\x00value"}, `environment variable "SECRET" contains NUL`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := baseConfig(t.TempDir())
+			app := c.Apps["api"]
+			app.Env = tt.env
+			c.Apps["api"] = app
+
+			_, err := c.Normalize()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			if strings.Contains(err.Error(), "hidden") {
+				t.Fatalf("error exposes environment value: %v", err)
+			}
+		})
 	}
 }
 
