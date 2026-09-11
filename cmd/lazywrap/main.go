@@ -15,6 +15,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 func main() {
@@ -45,7 +48,8 @@ func run() error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	sup := supervisor.New(cfg, proc.NewRunner(logger), logger)
-	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", cfg.Port), Handler: appProxy.NewHandler(cfg, sup, logger), ReadHeaderTimeout: 10 * time.Second}
+	handler := h2c.NewHandler(appProxy.NewHandler(cfg, sup, logger), &http2.Server{})
+	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", cfg.Port), Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	tcpServers := make([]*appProxy.TCPServer, 0)
 	for _, app := range cfg.Apps {
 		if app.Protocol == config.ProtocolTCP {

@@ -1,6 +1,6 @@
 # lazywrap
 
-Lazy-start HTTP/TCP proxy and local process supervisor for development services.
+Lazy-start HTTP/gRPC/TCP proxy and local process supervisor for development services.
 
 `lazywrap` keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
 
@@ -31,6 +31,7 @@ Services remain stopped until requested.
 
 * Lazy-start services on first request
 * Reverse proxy HTTP traffic by path or hostname
+* Proxy native gRPC over HTTP/2 cleartext (h2c)
 * Proxy raw TCP traffic on per-service listener ports
 * Automatic idle shutdown
 * Per-service idle timeout
@@ -102,7 +103,7 @@ apps:
     env:
       APP_ENV: development
       LOG_LEVEL: debug
-    protocol: http # http (default) or tcp
+    protocol: http # http (default), grpc, or tcp
     # Optional HTTP routing override. If both are omitted, host defaults to
     # SERVICE_ID.localhost.
     # path: /service/SERVICE_ID
@@ -110,6 +111,10 @@ apps:
     # TCP services use listenPort instead of path or host:
     # listenPort: 11980
     port: 1980
+    # Optional for gRPC services. Wait for the standard health service to
+    # report SERVING instead of using TCP port readiness.
+    # health:
+    #   grpc: true
     idle: 5m # set to 0 to disable automatic idle shutdown
     includePrefix: false # path routing only
 ```
@@ -133,13 +138,14 @@ apps:
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
 | `env`           | Environment variables for build, launch, and stop commands; app values override inherited variables |
-| `protocol`      | Proxy protocol: `http` (default) or `tcp`                       |
+| `protocol`      | Proxy protocol: `http` (default), `grpc`, or `tcp`               |
 | `path`          | Optional public path prefix; mutually exclusive with `host`              |
 | `host`          | Exact hostname; defaults to `<SERVICE_ID>.localhost` when `path` is omitted |
 | `listenPort`    | Public local listener port; required for TCP services           |
 | `port`          | Local port used by the service                                 |
 | `idle`          | Overrides the global idle timeout; `0` disables idle shutdown  |
 | `includePrefix` | Whether the configured path prefix is preserved; path routing only |
+| `health.grpc`   | For gRPC, wait for the standard health service to report `SERVING` |
 
 ## Example
 
@@ -213,6 +219,31 @@ apps:
 With wrapper port `3000`, `http://docs.localhost:3000/guide?q=1` is proxied to `http://127.0.0.1:1988/guide?q=1`. The path and query string are unchanged. Host matching is case-insensitive and ignores the wrapper port; it does not perform wildcard or suffix matching. `includePrefix` is not valid for host-routed services.
 
 Backends receive `Host: 127.0.0.1:<service-port>` so they identify the local target consistently; the incoming hostname is retained in `X-Forwarded-Host`.
+
+## gRPC proxying
+
+Use `protocol: grpc` for native gRPC services:
+
+```yaml
+apps:
+  greeter:
+    pwd: ~/code/greeter
+    launch: go run ./cmd/server
+    protocol: grpc
+    host: greeter.localhost
+    port: 50051
+    idle: 5m
+    health:
+      grpc: true
+```
+
+Connect a plaintext gRPC client to `greeter.localhost:3000`. lazywrap accepts HTTP/2 cleartext (h2c), starts the backend on the first RPC, waits for readiness, and proxies to `127.0.0.1:50051` without protobuf descriptors. Unary, client-streaming, server-streaming, bidirectional-streaming, metadata, deadlines, cancellation, status details, and trailers pass through transparently.
+
+An open RPC or stream keeps the service active. The idle timer starts only after the final RPC closes. gRPC services use hostname routing and do not support `path`, `includePrefix`, or `listenPort`.
+
+When `health.grpc` is enabled, the backend must implement the [standard gRPC health checking protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) and report `SERVING` for the overall server (`service: ""`). Without it, lazywrap considers the service ready when its TCP port accepts connections.
+
+The initial implementation is local-development oriented: plaintext h2c only. TLS termination, TLS upstreams, and gRPC-Web translation are not currently supported.
 
 ## TCP proxying
 
