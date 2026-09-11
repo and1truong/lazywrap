@@ -52,10 +52,8 @@ func TestKafkaSingleBrokerRoundTrip(t *testing.T) {
 		}
 	}
 
-	httpPort := freePort(t)
-	proxyPort := freePort(t)
-	brokerPort := freePort(t)
-	controllerPort := freePort(t)
+	ports := freePorts(t, 4)
+	httpPort, proxyPort, brokerPort, controllerPort := ports[0], ports[1], ports[2], ports[3]
 	tempDir := t.TempDir()
 	propertiesPath := filepath.Join(tempDir, "server.properties")
 	properties := fmt.Sprintf(`process.roles=broker,controller
@@ -165,17 +163,38 @@ group.initial.rebalance.delay.ms=0
 	}
 }
 
-func freePort(t *testing.T) int {
+func freePorts(t *testing.T, count int) []int {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	listeners := make([]net.Listener, 0, count)
+	ports := make([]int, 0, count)
+	for range count {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			for _, listener := range listeners {
+				_ = listener.Close()
+			}
+			t.Fatal(err)
+		}
+		listeners = append(listeners, listener)
+		ports = append(ports, listener.Addr().(*net.TCPAddr).Port)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		t.Fatal(err)
+	for _, listener := range listeners {
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return port
+	return ports
+}
+
+func TestFreePortsAreDistinct(t *testing.T) {
+	ports := freePorts(t, 4)
+	seen := make(map[int]struct{}, len(ports))
+	for _, port := range ports {
+		if _, exists := seen[port]; exists {
+			t.Fatalf("duplicate ephemeral port %d in %v", port, ports)
+		}
+		seen[port] = struct{}{}
+	}
 }
 
 func runKafka(t *testing.T, kafkaHome string, stdin *strings.Reader, script string, args ...string) string {
