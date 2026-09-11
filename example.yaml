@@ -29,3 +29,11 @@ apps:
     listenPort: 15432
     port: 5432
     idle: 30m
+
+  kafka:
+    pwd: /path/to/kafka
+    launch: bin/kafka-server-start.sh config/server.properties
+    protocol: tcp
+    listenPort: 19092
+    port: 9092
+    idle: 0

@@ -105,7 +105,7 @@ apps:
     # TCP services use listenPort instead of path or host:
     # listenPort: 11980
     port: 1980
-    idle: 5m
+    idle: 5m # set to 0 to disable automatic idle shutdown
     includePrefix: false # path routing only
 ```
 
@@ -132,7 +132,7 @@ apps:
 | `host`          | Exact hostname exposed by `lazywrap`; mutually exclusive with `path` |
 | `listenPort`    | Public local listener port; required for TCP services           |
 | `port`          | Local port used by the service                                 |
-| `idle`          | Overrides the global idle timeout                              |
+| `idle`          | Overrides the global idle timeout; `0` disables idle shutdown  |
 | `includePrefix` | Whether the configured path prefix is preserved; path routing only |
 
 ## Example
@@ -220,6 +220,48 @@ psql postgres://user:password@127.0.0.1:15432/database
 The first connection starts the service and waits for its target port to become ready. TCP bytes are then copied bidirectionally without protocol-specific processing. The service remains active while any connection is open; the idle timer begins only after the final connection closes. Long-lived connection pools therefore keep the service running.
 
 TCP services require a unique `listenPort`. They do not support `path`, `host`, or `includePrefix` routing.
+
+### Single-broker Kafka
+
+A local single-broker Kafka instance works through the generic TCP proxy. Kafka must advertise the lazywrap listener, not its backend listener, because clients reconnect to the broker address returned in Kafka metadata.
+
+Configure lazywrap:
+
+```yaml
+apps:
+  kafka:
+    pwd: ~/dev/kafka
+    launch: bin/kafka-server-start.sh config/server.properties
+    protocol: tcp
+    listenPort: 19092
+    port: 9092
+    idle: 0
+```
+
+Configure the Kafka broker:
+
+```properties
+listeners=PLAINTEXT://127.0.0.1:9092
+advertised.listeners=PLAINTEXT://127.0.0.1:19092
+```
+
+Configure clients:
+
+```properties
+bootstrap.servers=127.0.0.1:19092
+```
+
+Use `idle: 0` for Kafka. Producers and consumers commonly keep connections open and automatically reconnect; an idle shutdown would otherwise be ineffective or create a stop/reconnect/start loop.
+
+This setup intentionally supports localhost and one broker. It does not parse Kafka frames or rewrite metadata. Multi-broker clusters require a separate proxied listener and advertised address for every broker.
+
+To run the opt-in integration test against a local Kafka distribution:
+
+```bash
+KAFKA_HOME=/path/to/kafka go test -tags=integration ./integration
+```
+
+The test formats an isolated single-node KRaft data directory, starts Kafka lazily through lazywrap, and verifies topic administration plus a producer/consumer round trip using Kafka's CLI clients.
 
 ## Path forwarding
 

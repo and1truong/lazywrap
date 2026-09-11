@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,6 +159,48 @@ func TestNormalizeIdleOverride(t *testing.T) {
 	}
 	if cfg.Apps["api"].Idle != time.Minute {
 		t.Fatal("idle override not applied")
+	}
+}
+
+func TestNormalizeZeroAppIdleDisablesShutdown(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	zero := Duration{Duration: 0, set: true}
+	app := c.Apps["api"]
+	app.Idle = &zero
+	c.Apps["api"] = app
+	cfg, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Apps["api"].Idle != 0 {
+		t.Fatalf("idle = %s, want disabled", cfg.Apps["api"].Idle)
+	}
+}
+
+func TestLoadAcceptsZeroAppIdle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lazywrap.yaml")
+	contents := fmt.Sprintf("apps:\n  kafka:\n    pwd: %q\n    launch: kafka\n    protocol: tcp\n    listenPort: 19092\n    port: 9092\n    idle: 0\n", dir)
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Apps["kafka"].Idle != 0 {
+		t.Fatalf("idle = %s, want disabled", cfg.Apps["kafka"].Idle)
+	}
+}
+
+func TestNormalizeRejectsNegativeAppIdle(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	negative := Duration{Duration: -time.Second, set: true}
+	app := c.Apps["api"]
+	app.Idle = &negative
+	c.Apps["api"] = app
+	if _, err := c.Normalize(); err == nil || !strings.Contains(err.Error(), "idle must be non-negative") {
+		t.Fatalf("error = %v, want non-negative idle validation", err)
 	}
 }
 

@@ -219,8 +219,8 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if a.Idle != nil {
 			idle = a.Idle.Duration
 		}
-		if idle <= 0 {
-			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be positive", id)
+		if idle < 0 {
+			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be non-negative", id)
 		}
 		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix}
 	}

@@ -138,3 +138,32 @@ func TestStopReturnsStopCommandError(t *testing.T) {
 		t.Fatalf("Stop() error = %v, want %v", err, stopErr)
 	}
 }
+
+func TestZeroIdleDoesNotScheduleShutdown(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := probe.Addr().(*net.TCPAddr).Port
+	addr := probe.Addr().String()
+	_ = probe.Close()
+	f := &fakeRunner{addr: addr, ready: make(chan struct{}), done: make(chan struct{})}
+	close(f.ready)
+	s := newService(context.Background(), config.RuntimeAppConfig{
+		ID: "kafka", Pwd: t.TempDir(), Launch: "launch", Port: port,
+		Idle: 0, StartTimeout: time.Second, StopTimeout: time.Second,
+	}, f, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	release, err := s.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	time.Sleep(50 * time.Millisecond)
+
+	if got := s.State(); got != StateRunning {
+		t.Fatalf("state = %v, want %v", got, StateRunning)
+	}
+	_ = f.ln.Close()
+	close(f.done)
+}
