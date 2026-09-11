@@ -49,6 +49,22 @@ func TestRouter(t *testing.T) {
 	}
 }
 
+func TestRouterMatchesDefaultHostFromNormalizedConfig(t *testing.T) {
+	cfg, err := (config.Config{Apps: map[string]config.AppConfig{
+		"api": {Pwd: t.TempDir(), Launch: "server", Port: 1980},
+	}}).Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := cfg.Apps["api"]
+	router := NewRouter([]Route{{ID: app.ID, Path: app.Path, Host: app.Host}})
+
+	got, ok := router.Match("api.localhost:3000", "/health")
+	if !ok || got.ID != "api" {
+		t.Fatalf("Match() = %#v, %v; want api route", got, ok)
+	}
+}
+
 type lifecycleRunner struct {
 	mu     sync.Mutex
 	starts map[string]int

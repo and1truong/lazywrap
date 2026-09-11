@@ -17,7 +17,7 @@ apps:
   docs:
     pwd: /path/to/docs
     launch: npm run dev
-    host: docs.localhost
+    # Defaults to docs.localhost because neither host nor path is set.
     port: 1988
     idle: 5m
 

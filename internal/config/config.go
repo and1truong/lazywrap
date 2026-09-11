@@ -151,6 +151,9 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 			if a.ListenPort != 0 {
 				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort is only supported with TCP", id)
 			}
+			if path == "" && host == "" {
+				host = id + ".localhost"
+			}
 			if (path == "") == (host == "") {
 				return RuntimeConfig{}, fmt.Errorf("app %q: exactly one of path or host is required", id)
 			}

@@ -99,9 +99,10 @@ apps:
     launch: /command/to/start/it
     stop: /optional/command/to/stop/it
     protocol: http # http (default) or tcp
-    # Configure exactly one routing mode:
-    path: /service/SERVICE_ID
-    # host: service-id.localhost
+    # Optional HTTP routing override. If both are omitted, host defaults to
+    # SERVICE_ID.localhost.
+    # path: /service/SERVICE_ID
+    # host: custom.localhost
     # TCP services use listenPort instead of path or host:
     # listenPort: 11980
     port: 1980
@@ -128,8 +129,8 @@ apps:
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
 | `protocol`      | Proxy protocol: `http` (default) or `tcp`                       |
-| `path`          | Public path prefix exposed by `lazywrap`; mutually exclusive with `host` |
-| `host`          | Exact hostname exposed by `lazywrap`; mutually exclusive with `path` |
+| `path`          | Optional public path prefix; mutually exclusive with `host`              |
+| `host`          | Exact hostname; defaults to `<SERVICE_ID>.localhost` when `path` is omitted |
 | `listenPort`    | Public local listener port; required for TCP services           |
 | `port`          | Local port used by the service                                 |
 | `idle`          | Overrides the global idle timeout; `0` disables idle shutdown  |
@@ -180,7 +181,17 @@ http://localhost:1980/hello
 
 ## Host routing
 
-A service can be routed by its exact hostname instead of a path prefix:
+HTTP services default to host routing when neither `host` nor `path` is configured. The app ID becomes `<SERVICE_ID>.localhost`:
+
+```yaml
+apps:
+  docs:
+    pwd: ~/code/docs
+    launch: npm run dev
+    port: 1988
+```
+
+This exposes `docs` at `http://docs.localhost:3000`. You can also configure an exact hostname explicitly:
 
 ```yaml
 apps:
