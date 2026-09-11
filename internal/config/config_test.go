@@ -87,6 +87,53 @@ func TestNormalizeRoutingModes(t *testing.T) {
 	}
 }
 
+func TestNormalizeTCPRouting(t *testing.T) {
+	dir := t.TempDir()
+	c := Config{Port: 3000, Apps: map[string]AppConfig{
+		"db": {Pwd: dir, Launch: "postgres", Protocol: "TCP", ListenPort: 15432, Port: 5432},
+	}}
+	got, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app := got.Apps["db"]; app.Protocol != ProtocolTCP || app.ListenPort != 15432 || app.Port != 5432 {
+		t.Fatalf("TCP app = %#v", app)
+	}
+}
+
+func TestNormalizeRejectsInvalidTCPRouting(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name string
+		app  AppConfig
+		want string
+	}{
+		{"missing listen port", AppConfig{Pwd: dir, Launch: "server", Protocol: "tcp", Port: 5432}, "invalid listenPort"},
+		{"path", AppConfig{Pwd: dir, Launch: "server", Protocol: "tcp", Path: "/db", ListenPort: 15432, Port: 5432}, "not supported with TCP"},
+		{"wrapper conflict", AppConfig{Pwd: dir, Launch: "server", Protocol: "tcp", ListenPort: 3000, Port: 5432}, "conflicts with wrapper port"},
+		{"unknown protocol", AppConfig{Pwd: dir, Launch: "server", Protocol: "udp", Port: 5432}, "invalid protocol"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := (Config{Port: 3000, Apps: map[string]AppConfig{"db": tt.app}}).Normalize()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeRejectsDuplicateTCPListenPorts(t *testing.T) {
+	dir := t.TempDir()
+	c := Config{Apps: map[string]AppConfig{
+		"postgres": {Pwd: dir, Launch: "postgres", Protocol: "tcp", ListenPort: 15432, Port: 5432},
+		"redis":    {Pwd: dir, Launch: "redis", Protocol: "tcp", ListenPort: 15432, Port: 6379},
+	}}
+	if _, err := c.Normalize(); err == nil || !strings.Contains(err.Error(), "duplicate listenPort") {
+		t.Fatalf("error = %v, want duplicate listenPort", err)
+	}
+}
+
 func TestNormalizeRejectsDuplicateHosts(t *testing.T) {
 	dir := t.TempDir()
 	c := Config{Apps: map[string]AppConfig{

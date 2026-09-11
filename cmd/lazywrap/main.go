@@ -46,14 +46,24 @@ func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	sup := supervisor.New(cfg, proc.NewRunner(logger), logger)
 	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", cfg.Port), Handler: appProxy.NewHandler(cfg, sup, logger), ReadHeaderTimeout: 10 * time.Second}
+	tcpServers := make([]*appProxy.TCPServer, 0)
+	for _, app := range cfg.Apps {
+		if app.Protocol == config.ProtocolTCP {
+			tcpServers = append(tcpServers, appProxy.NewTCPServer(app, sup, logger))
+		}
+	}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	errc := make(chan error, 1)
+	errc := make(chan error, 1+len(tcpServers))
 	go func() { logger.Info("listening", "address", server.Addr); errc <- server.ListenAndServe() }()
+	for _, tcpServer := range tcpServers {
+		go func(s *appProxy.TCPServer) { errc <- s.ListenAndServe() }(tcpServer)
+	}
+	var serveErr error
 	select {
 	case e := <-errc:
-		if !errors.Is(e, http.ErrServerClosed) {
-			return e
+		if !errors.Is(e, http.ErrServerClosed) && !errors.Is(e, appProxy.ErrTCPServerClosed) {
+			serveErr = e
 		}
 	case <-signals.Done():
 	}
@@ -63,5 +73,13 @@ func run() error {
 	if e := server.Shutdown(ctx); e != nil {
 		logger.Error("HTTP shutdown failed", "err", e)
 	}
-	return sup.StopAll(ctx)
+	for _, tcpServer := range tcpServers {
+		if e := tcpServer.Shutdown(ctx); e != nil {
+			logger.Error("TCP shutdown failed", "address", tcpServer.Addr(), "err", e)
+		}
+	}
+	if e := sup.StopAll(ctx); e != nil {
+		return e
+	}
+	return serveErr
 }

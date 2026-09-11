@@ -23,6 +23,9 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 	h := &Handler{supervisor: s, proxies: map[string]*httputil.ReverseProxy{}, logger: l}
 	routes := make([]Route, 0, len(c.Apps))
 	for id, a := range c.Apps {
+		if a.Protocol == config.ProtocolTCP {
+			continue
+		}
 		routes = append(routes, Route{ID: id, Path: a.Path, Host: a.Host})
 		target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(a.Port)}
 		cfg := a

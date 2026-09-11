@@ -1,6 +1,6 @@
 # lazywrap
 
-Lazy-start reverse proxy and local process supervisor for development services.
+Lazy-start HTTP/TCP proxy and local process supervisor for development services.
 
 `lazywrap` keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
 
@@ -30,7 +30,8 @@ Services remain stopped until requested.
 ## Features
 
 * Lazy-start services on first request
-* Reverse proxy HTTP traffic
+* Reverse proxy HTTP traffic by path or hostname
+* Proxy raw TCP traffic on per-service listener ports
 * Automatic idle shutdown
 * Per-service idle timeout
 * Optional build command before launch
@@ -97,9 +98,12 @@ apps:
     build: /command/to/build/it
     launch: /command/to/start/it
     stop: /optional/command/to/stop/it
+    protocol: http # http (default) or tcp
     # Configure exactly one routing mode:
     path: /service/SERVICE_ID
     # host: service-id.localhost
+    # TCP services use listenPort instead of path or host:
+    # listenPort: 11980
     port: 1980
     idle: 5m
     includePrefix: false # path routing only
@@ -123,8 +127,10 @@ apps:
 | `build`         | Optional command executed before starting the service          |
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
+| `protocol`      | Proxy protocol: `http` (default) or `tcp`                       |
 | `path`          | Public path prefix exposed by `lazywrap`; mutually exclusive with `host` |
 | `host`          | Exact hostname exposed by `lazywrap`; mutually exclusive with `path` |
+| `listenPort`    | Public local listener port; required for TCP services           |
 | `port`          | Local port used by the service                                 |
 | `idle`          | Overrides the global idle timeout                              |
 | `includePrefix` | Whether the configured path prefix is preserved; path routing only |
@@ -188,6 +194,32 @@ apps:
 With wrapper port `3000`, `http://docs.localhost:3000/guide?q=1` is proxied to `http://127.0.0.1:1988/guide?q=1`. The path and query string are unchanged. Host matching is case-insensitive and ignores the wrapper port; it does not perform wildcard or suffix matching. `includePrefix` is not valid for host-routed services.
 
 Backends receive `Host: 127.0.0.1:<service-port>` so they identify the local target consistently; the incoming hostname is retained in `X-Forwarded-Host`.
+
+## TCP proxying
+
+Use `protocol: tcp` for PostgreSQL, Redis, MySQL, SSH, and other local TCP services:
+
+```yaml
+apps:
+  postgres:
+    pwd: ~/code/my-project
+    launch: docker compose up postgres
+    stop: docker compose stop postgres
+    protocol: tcp
+    listenPort: 15432
+    port: 5432
+    idle: 30m
+```
+
+Connect through the lazywrap listener:
+
+```bash
+psql postgres://user:password@127.0.0.1:15432/database
+```
+
+The first connection starts the service and waits for its target port to become ready. TCP bytes are then copied bidirectionally without protocol-specific processing. The service remains active while any connection is open; the idle timer begins only after the final connection closes. Long-lived connection pools therefore keep the service running.
+
+TCP services require a unique `listenPort`. They do not support `path`, `host`, or `includePrefix` routing.
 
 ## Path forwarding
 

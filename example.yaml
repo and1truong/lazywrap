@@ -20,3 +20,12 @@ apps:
     host: docs.localhost
     port: 1988
     idle: 5m
+
+  postgres:
+    pwd: /path/to/project
+    launch: docker compose up postgres
+    stop: docker compose stop postgres
+    protocol: tcp
+    listenPort: 15432
+    port: 5432
+    idle: 30m
