@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"lazywrap/internal/config"
 	"lazywrap/internal/lifecycle"
 	proc "lazywrap/internal/process"
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -28,14 +30,100 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
+	return runArgs(os.Args[1:], os.Stdout)
+}
+
+func runArgs(args []string, output io.Writer) error {
 	def, e := config.DefaultPath()
 	if e != nil {
 		return e
 	}
-	path := flag.String("c", def, "configuration file")
-	flag.Parse()
-	cfg, e := config.Load(*path)
+	if len(args) > 0 && args[0] == "doctor" {
+		return runDoctorArgs(def, args[1:], output)
+	}
+
+	flags := flag.NewFlagSet("lazywrap", flag.ContinueOnError)
+	flags.SetOutput(output)
+	path := flags.String("c", def, "configuration file")
+	flags.Usage = func() {
+		fmt.Fprintln(output, "Usage: lazywrap [-c FILE]")
+		fmt.Fprintln(output, "       lazywrap doctor [-c FILE]")
+		flags.PrintDefaults()
+	}
+	if e := flags.Parse(args); e != nil {
+		if errors.Is(e, flag.ErrHelp) {
+			return nil
+		}
+		return e
+	}
+	if flags.NArg() == 1 && flags.Arg(0) == "doctor" {
+		return runDoctor(*path, output)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %v", flags.Args())
+	}
+	return runServer(*path)
+}
+
+func runDoctorArgs(defaultPath string, args []string, output io.Writer) error {
+	flags := flag.NewFlagSet("lazywrap doctor", flag.ContinueOnError)
+	flags.SetOutput(output)
+	path := flags.String("c", defaultPath, "configuration file")
+	flags.Usage = func() {
+		fmt.Fprintln(output, "Usage: lazywrap doctor [-c FILE]")
+		flags.PrintDefaults()
+	}
+	if e := flags.Parse(args); e != nil {
+		if errors.Is(e, flag.ErrHelp) {
+			return nil
+		}
+		return e
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("doctor: unexpected arguments: %v", flags.Args())
+	}
+	return runDoctor(*path, output)
+}
+
+func runDoctor(path string, output io.Writer) error {
+	cfg, e := config.LoadStrict(path)
+	if e != nil {
+		return fmt.Errorf("doctor: configuration is invalid: %w", e)
+	}
+
+	ids := make([]string, 0, len(cfg.Apps))
+	for id := range cfg.Apps {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	fmt.Fprintf(output, "[ok] configuration: %s\n", path)
+	for _, id := range ids {
+		app := cfg.Apps[id]
+		fmt.Fprintf(output, "[ok] app %s: %s -> 127.0.0.1:%d (pwd: %s)\n", id, doctorEndpoint(cfg, app), app.Port, app.Pwd)
+	}
+	fmt.Fprintf(output, "[ok] %d app(s) checked\n", len(ids))
+	return nil
+}
+
+func doctorEndpoint(cfg config.RuntimeConfig, app config.RuntimeAppConfig) string {
+	switch app.Protocol {
+	case config.ProtocolTCP:
+		return fmt.Sprintf("tcp://127.0.0.1:%d", app.ListenPort)
+	case config.ProtocolGRPC:
+		return fmt.Sprintf("grpc://%s:%d", app.Host, cfg.Port)
+	default:
+		if app.Host != "" {
+			return fmt.Sprintf("http://%s:%d", app.Host, cfg.Port)
+		}
+		return fmt.Sprintf("http://127.0.0.1:%d%s", cfg.Port, app.Path)
+	}
+}
+
+func runServer(path string) error {
+	cfg, e := config.Load(path)
 	if e != nil {
 		return fmt.Errorf("load configuration: %w", e)
 	}

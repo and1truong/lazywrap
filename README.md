@@ -45,6 +45,7 @@ Services remain stopped until requested.
 * Child process stdout/stderr forwarding
 * Per-service log prefixes
 * Configurable log levels
+* Config doctor for validating every configured service
 * Graceful shutdown on `SIGINT` / `SIGTERM`
 * Minimal dependencies
 
@@ -78,6 +79,18 @@ The release workflow runs the test suite and `go vet`, then GoReleaser publishes
 ```bash
 lazywrap -c /path/to/config.yaml
 ```
+
+Validate the configuration and inspect every resolved app without running any
+hooks or app commands:
+
+```bash
+lazywrap doctor -c /path/to/config.yaml
+```
+
+`doctor` rejects unknown fields and checks the routing, protocol, port,
+working-directory, environment-file, and interpolation rules used at startup.
+It prints apps in a stable order with their public endpoint and backend target,
+and exits non-zero when validation fails.
 
 Without `-c`, `lazywrap` uses:
 
