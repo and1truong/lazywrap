@@ -137,6 +137,7 @@ apps:
 | `build`         | Optional command executed before starting the service          |
 | `launch`        | Command used to start the service                              |
 | `stop`          | Optional command used to stop the service                      |
+| `envFiles`      | Ordered dotenv files; relative paths resolve against `pwd` |
 | `env`           | Environment variables for build, launch, and stop commands; app values override inherited variables |
 | `protocol`      | Proxy protocol: `http` (default), `grpc`, or `tcp`               |
 | `path`          | Optional public path prefix; mutually exclusive with `host`              |
@@ -146,6 +147,45 @@ apps:
 | `idle`          | Overrides the global idle timeout; `0` disables idle shutdown  |
 | `includePrefix` | Whether the configured path prefix is preserved; path routing only |
 | `health.grpc`   | For gRPC, wait for the standard health service to report `SERVING` |
+
+## Environment files and interpolation
+
+```yaml
+apps:
+  appFoo:
+    pwd: /path/to/project
+    launch: npm run dev
+    port: 1980
+    envFiles:
+      - .env
+      - .env.local
+    env:
+      foo: "include dynamic value: {{FOO:default-foo-value}}"
+      API_URL: "{{API_URL:http://localhost:8080}}"
+```
+
+Files are loaded in order; later files override earlier files. Inline `env`
+overrides files, which override inherited process variables. Relative file paths
+resolve against the service's `pwd`; absolute paths and `~/` are supported.
+Missing, unreadable, or malformed files fail configuration loading.
+
+Inline `env` values support multiple `{{NAME}}` and `{{NAME:default}}` expressions.
+Lookups use inherited variables overlaid with the service's files. Inline entries
+do not reference each other. Defaults apply only to unset variables; an explicitly
+empty value remains empty. Missing variables without defaults and malformed
+expressions fail configuration loading. Defaults may contain colons. Substituted
+values are not recursively expanded; `${NAME}` remains literal.
+
+Files support single-line `KEY=value`, optional `export`, blank lines, comments,
+and single/double quotes. Double quotes support `\n`, `\r`, `\t`, `\\`, and `\"`.
+Unquoted inline comments begin with `#` following whitespace. Multiline quoted
+values are unsupported. File values are literal: no shell execution or variable
+expansion is performed.
+
+Files and templates are resolved once when the configuration loads. Restart
+lazywrap to pick up changes. The resolved environment is shared by the service's
+build, launch, and stop commands, without modifying the parent environment or
+other services.
 
 ## Example
 
