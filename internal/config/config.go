@@ -34,6 +34,7 @@ type Config struct {
 	Apps         map[string]AppConfig `yaml:"apps"`
 }
 type AppConfig struct {
+	EnvFiles []string `yaml:"envFiles,omitempty"`
 	Pwd           string            `yaml:"pwd"`
 	Build         string            `yaml:"build"`
 	Launch        string            `yaml:"launch"`
@@ -251,6 +252,10 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 			return RuntimeConfig{}, fmt.Errorf("app %q: pwd is not a directory", id)
 		}
 		a.Pwd = pwd
+		resolvedEnv, err := resolveEnvironment(a)
+		if err != nil {
+			return RuntimeConfig{}, fmt.Errorf("app %q: %w", id, err)
+		}
 		idle := c.Idle.Duration
 		if a.Idle != nil {
 			idle = a.Idle.Duration
@@ -258,7 +263,7 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if idle < 0 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be non-negative", id)
 		}
-		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: cloneStringMap(a.Env), Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix, GRPCHealth: a.Health.GRPC}
+		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: resolvedEnv, Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix, GRPCHealth: a.Health.GRPC}
 	}
 	return r, nil
 }
