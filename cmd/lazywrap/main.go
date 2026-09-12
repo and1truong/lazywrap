@@ -74,6 +74,9 @@ func run() error {
 		_ = hooks.TearDown(cleanupCtx)
 	}()
 	if e := hooks.StartUp(signals); e != nil {
+		if signals.Err() != nil {
+			return nil
+		}
 		return e
 	}
 	listener, e := net.Listen("tcp", server.Addr)
