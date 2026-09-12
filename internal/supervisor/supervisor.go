@@ -42,10 +42,11 @@ func (s *Supervisor) StopAll(ctx context.Context) error {
 	for _, v := range s.services {
 		go func(x *Service) { errs <- x.Stop(ctx) }(v)
 	}
+	var stopErrs []error
 	for range s.services {
 		if e := <-errs; e != nil {
-			return e
+			stopErrs = append(stopErrs, e)
 		}
 	}
-	return nil
+	return errors.Join(stopErrs...)
 }
