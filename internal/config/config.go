@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,12 +108,24 @@ func normalizeHost(host string) (string, error) {
 }
 
 func Load(path string) (RuntimeConfig, error) {
+	return load(path, false)
+}
+
+// LoadStrict loads a configuration while rejecting unknown YAML fields. It is
+// intended for diagnostics that should catch misspelled or obsolete options.
+func LoadStrict(path string) (RuntimeConfig, error) {
+	return load(path, true)
+}
+
+func load(path string, strict bool) (RuntimeConfig, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
 	var c Config
-	if err := yaml.Unmarshal(b, &c); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(b))
+	decoder.KnownFields(strict)
+	if err := decoder.Decode(&c); err != nil {
 		return RuntimeConfig{}, err
 	}
 	return c.Normalize()
