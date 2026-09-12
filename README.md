@@ -94,6 +94,11 @@ startTimeout: 30s
 stopTimeout: 10s
 logLevel: info
 
+startUp:
+  - /path/to/custom/start-command
+tearDown:
+  - /path/to/custom/cleanup-command
+
 apps:
   SERVICE_ID:
     pwd: /path/to/dir
@@ -128,6 +133,10 @@ apps:
 | `startTimeout` | Maximum time to wait for a service to become ready | `30s`    |
 | `stopTimeout`  | Maximum time allowed for service shutdown          | `10s`    |
 | `logLevel`     | `debug`, `info`, `warning`, or `error`             | `info`   |
+| `startUp`      | Commands run sequentially before traffic is served | `[]`     |
+| `tearDown`     | Best-effort commands run sequentially on shutdown  | `[]`     |
+
+`startUp` and `tearDown` are process-wide hooks. Each command uses the platform shell and inherits lazywrap's working directory and environment, matching service command execution. A failed `startUp` command aborts startup. During shutdown, every `tearDown` command is attempted even when an earlier command fails.
 
 ### Service options
 

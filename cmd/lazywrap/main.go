@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"lazywrap/internal/config"
+	"lazywrap/internal/lifecycle"
 	proc "lazywrap/internal/process"
 	appProxy "lazywrap/internal/proxy"
 	"lazywrap/internal/supervisor"
@@ -48,17 +49,15 @@ func run() error {
 		level = slog.LevelError
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-	sup := supervisor.New(cfg, proc.NewRunner(logger), logger)
+	runner := proc.NewRunner(logger)
+	hooks := lifecycle.New(cfg.StartUp, cfg.TearDown, runner, logger)
+	sup := supervisor.New(cfg, runner, logger)
 	drainer := appProxy.NewDrainHandler(appProxy.NewHandler(cfg, sup, logger))
 	http2Server := &http2.Server{}
 	handler := h2c.NewHandler(drainer, http2Server)
 	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", cfg.Port), Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	if e := http2.ConfigureServer(server, http2Server); e != nil {
 		return fmt.Errorf("configure HTTP/2 server: %w", e)
-	}
-	listener, e := net.Listen("tcp", server.Addr)
-	if e != nil {
-		return e
 	}
 	connections := appProxy.NewConnectionTracker()
 	tcpServers := make([]*appProxy.TCPServer, 0)
@@ -69,6 +68,21 @@ func run() error {
 	}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), cfg.StopTimeout+30*time.Second)
+		defer cancel()
+		_ = hooks.TearDown(cleanupCtx)
+	}()
+	if e := hooks.StartUp(signals); e != nil {
+		if signals.Err() != nil {
+			return nil
+		}
+		return e
+	}
+	listener, e := net.Listen("tcp", server.Addr)
+	if e != nil {
+		return e
+	}
 	errc := make(chan error, 1+len(tcpServers))
 	go func() {
 		logger.Info("listening", "address", server.Addr)
@@ -96,8 +110,6 @@ func run() error {
 			logger.Error("TCP shutdown failed", "address", tcpServer.Addr(), "err", e)
 		}
 	}
-	if e := sup.StopAll(ctx); e != nil {
-		return e
-	}
-	return serveErr
+	stopErr := sup.StopAll(ctx)
+	return errors.Join(serveErr, stopErr)
 }
