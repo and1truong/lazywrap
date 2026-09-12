@@ -31,6 +31,8 @@ type Config struct {
 	LogLevel     string               `yaml:"logLevel"`
 	StartTimeout Duration             `yaml:"startTimeout"`
 	StopTimeout  Duration             `yaml:"stopTimeout"`
+	StartUp      []string             `yaml:"startUp"`
+	TearDown     []string             `yaml:"tearDown"`
 	Apps         map[string]AppConfig `yaml:"apps"`
 }
 type AppConfig struct {
@@ -55,6 +57,7 @@ type RuntimeConfig struct {
 	Port                      int
 	LogLevel                  string
 	StartTimeout, StopTimeout time.Duration
+	StartUp, TearDown         []string
 	Apps                      map[string]RuntimeAppConfig
 }
 type RuntimeAppConfig struct {
@@ -140,7 +143,15 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 	if c.Idle.Duration <= 0 || c.StartTimeout.Duration <= 0 || c.StopTimeout.Duration <= 0 {
 		return RuntimeConfig{}, fmt.Errorf("durations must be positive")
 	}
-	r := RuntimeConfig{Port: c.Port, LogLevel: c.LogLevel, StartTimeout: c.StartTimeout.Duration, StopTimeout: c.StopTimeout.Duration, Apps: make(map[string]RuntimeAppConfig, len(c.Apps))}
+	r := RuntimeConfig{
+		Port:         c.Port,
+		LogLevel:     c.LogLevel,
+		StartTimeout: c.StartTimeout.Duration,
+		StopTimeout:  c.StopTimeout.Duration,
+		StartUp:      append([]string(nil), c.StartUp...),
+		TearDown:     append([]string(nil), c.TearDown...),
+		Apps:         make(map[string]RuntimeAppConfig, len(c.Apps)),
+	}
 	paths, hosts, ports, listenPorts := map[string]string{}, map[string]string{}, map[int]string{}, map[int]string{}
 	for id, a := range c.Apps {
 		if strings.TrimSpace(a.Launch) == "" {

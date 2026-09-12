@@ -4,6 +4,11 @@ logLevel: info
 startTimeout: 30s
 stopTimeout: 10s
 
+startUp:
+  - docker compose up -d shared-dependency
+tearDown:
+  - docker compose down
+
 apps:
   api:
     pwd: /path/to/api

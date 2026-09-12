@@ -27,6 +27,43 @@ func TestNormalizeDefaultsAndPath(t *testing.T) {
 	}
 }
 
+func TestNormalizeCopiesLifecycleHooks(t *testing.T) {
+	c := baseConfig(t.TempDir())
+	c.StartUp = []string{"prepare"}
+	c.TearDown = []string{"cleanup"}
+
+	cfg, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.StartUp[0] = "changed"
+	c.TearDown[0] = "changed"
+
+	if cfg.StartUp[0] != "prepare" || cfg.TearDown[0] != "cleanup" {
+		t.Fatalf("lifecycle hooks changed after source config mutation: %#v %#v", cfg.StartUp, cfg.TearDown)
+	}
+}
+
+func TestLoadLifecycleHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lazywrap.yaml")
+	contents := fmt.Sprintf("startUp:\n  - prepare one\n  - prepare two\ntearDown:\n  - cleanup\napps:\n  api:\n    pwd: %q\n    launch: server\n    port: 1980\n", dir)
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.StartUp) != 2 || cfg.StartUp[0] != "prepare one" || cfg.StartUp[1] != "prepare two" {
+		t.Fatalf("startUp = %#v", cfg.StartUp)
+	}
+	if len(cfg.TearDown) != 1 || cfg.TearDown[0] != "cleanup" {
+		t.Fatalf("tearDown = %#v", cfg.TearDown)
+	}
+}
+
 func TestDefaultPathUsesLazywrapName(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil {
