@@ -233,6 +233,55 @@ func TestHandlerHostRoutingLifecycleAndPathCoexistence(t *testing.T) {
 	}
 }
 
+func TestHandlerRoutesNamedEndpointsAndPrimaryAliasWithSingleStartup(t *testing.T) {
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("web"))
+	}))
+	defer web.Close()
+	metrics := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("metrics"))
+	}))
+	defer metrics.Close()
+
+	runner := newLifecycleRunner()
+	cfg := config.RuntimeConfig{Apps: map[string]config.RuntimeAppConfig{
+		"foo": {
+			ID: "foo", Pwd: t.TempDir(), Launch: "start", Stop: "stop",
+			Idle: time.Hour, StartTimeout: time.Second, StopTimeout: time.Second,
+			Endpoints: map[string]config.RuntimeEndpointConfig{
+				"web":     {Name: "web", Protocol: config.ProtocolHTTP, Host: "foo.localhost", Aliases: []string{"web.foo.localhost"}, Port: backendPort(t, web.URL), Primary: true},
+				"metrics": {Name: "metrics", Protocol: config.ProtocolHTTP, Host: "metrics.foo.localhost", Port: backendPort(t, metrics.URL)},
+			},
+		},
+	}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHandler(cfg, supervisor.New(cfg, runner, logger), logger)
+
+	request := func(host string) string {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "http://wrapper/", nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status = %d", host, w.Code)
+		}
+		return w.Body.String()
+	}
+	if got := request("foo.localhost"); got != "web" {
+		t.Fatalf("primary response = %q", got)
+	}
+	if got := request("web.foo.localhost"); got != "web" {
+		t.Fatalf("primary alias response = %q", got)
+	}
+	if got := request("metrics.foo.localhost"); got != "metrics" {
+		t.Fatalf("metrics response = %q", got)
+	}
+	if starts, _ := runner.counts("foo"); starts != 1 {
+		t.Fatalf("starts = %d, want 1", starts)
+	}
+}
+
 type requestError struct{ status int }
 
 func (e *requestError) Error() string { return http.StatusText(e.status) }

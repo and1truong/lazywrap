@@ -69,7 +69,7 @@ func TestDoctorAcceptsGlobalConfigFlagBeforeSubcommand(t *testing.T) {
 	}
 }
 
-func TestDoctorRejectsInvalidAppWithoutRunningCommands(t *testing.T) {
+func TestDoctorAcceptsProcessOnlyAppWithoutRunningCommands(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "launched")
 	configPath := filepath.Join(dir, "lazywrap.yaml")
@@ -79,12 +79,11 @@ func TestDoctorRejectsInvalidAppWithoutRunningCommands(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	err := runArgs([]string{"doctor", "-c", configPath}, &output)
-	if err == nil || !strings.Contains(err.Error(), `app "api": invalid port 0`) {
-		t.Fatalf("error = %v", err)
+	if err := runArgs([]string{"doctor", "-c", configPath}, &output); err != nil {
+		t.Fatal(err)
 	}
-	if output.Len() != 0 {
-		t.Fatalf("output = %q, want empty output", output.String())
+	if !strings.Contains(output.String(), "app api: process only") {
+		t.Fatalf("output = %q", output.String())
 	}
 	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
 		t.Fatalf("doctor executed launch command; stat error = %v", statErr)

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-type Route struct{ ID, Path, Host, Protocol string }
+type Route struct{ ID, Endpoint, Path, Host, Protocol string }
 type Router struct {
 	hosts map[string]Route
 	paths []Route

@@ -32,6 +32,16 @@ apps:
     port: 1988
     idle: 5m
 
+  dashboard:
+    pwd: /path/to/dashboard
+    launch: ./dashboard
+    endpoints:
+      web:
+        port: 8080
+        primary: true
+      metrics:
+        port: 9090
+
   greeter:
     pwd: /path/to/greeter
     launch: go run ./cmd/server

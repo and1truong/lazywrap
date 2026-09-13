@@ -29,39 +29,45 @@ func NewHandler(c config.RuntimeConfig, s *supervisor.Supervisor, l *slog.Logger
 	h := &Handler{supervisor: s, proxies: map[string]*httputil.ReverseProxy{}, logger: l}
 	routes := make([]Route, 0, len(c.Apps))
 	for id, a := range c.Apps {
-		if a.Protocol == config.ProtocolTCP {
-			continue
+		for _, endpoint := range a.EndpointList() {
+			if endpoint.Protocol == config.ProtocolTCP {
+				continue
+			}
+			route := Route{ID: id, Endpoint: endpoint.Name, Path: endpoint.Path, Host: endpoint.Host, Protocol: endpoint.Protocol}
+			routes = append(routes, route)
+			for _, alias := range endpoint.Aliases {
+				routes = append(routes, Route{ID: id, Endpoint: endpoint.Name, Host: alias, Protocol: endpoint.Protocol})
+			}
+			target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(endpoint.Port)}
+			cfg := endpoint
+			p := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(target)
+				pr.SetXForwarded()
+				// Local backends receive their own address as Host, rather than the
+				// wrapper's routing host. The original host remains in X-Forwarded-Host.
+				pr.Out.Host = target.Host
+				if cfg.Host == "" {
+					rewrite(pr, cfg.Path, cfg.IncludePrefix)
+				}
+			}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, e error) {
+				l.Error("backend proxy failed", "service", id, "endpoint", cfg.Name, "err", e)
+				if cfg.Protocol == config.ProtocolGRPC {
+					writeGRPCError(w, grpcCode(r.Context(), e), "backend unavailable")
+					return
+				}
+				http.Error(w, "Bad Gateway", http.StatusBadGateway)
+			}}
+			if endpoint.Protocol == config.ProtocolGRPC {
+				dialer := &net.Dialer{}
+				p.Transport = &http2.Transport{
+					AllowHTTP: true,
+					DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+						return dialer.DialContext(ctx, network, addr)
+					},
+				}
+			}
+			h.proxies[routeKey(id, endpoint.Name)] = p
 		}
-		routes = append(routes, Route{ID: id, Path: a.Path, Host: a.Host, Protocol: a.Protocol})
-		target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(a.Port)}
-		cfg := a
-		p := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(target)
-			pr.SetXForwarded()
-			// Local backends receive their own address as Host, rather than the
-			// wrapper's routing host. The original host remains in X-Forwarded-Host.
-			pr.Out.Host = target.Host
-			if cfg.Host == "" {
-				rewrite(pr, cfg.Path, cfg.IncludePrefix)
-			}
-		}, ErrorHandler: func(w http.ResponseWriter, r *http.Request, e error) {
-			l.Error("backend proxy failed", "service", cfg.ID, "err", e)
-			if cfg.Protocol == config.ProtocolGRPC {
-				writeGRPCError(w, grpcCode(r.Context(), e), "backend unavailable")
-				return
-			}
-			http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		}}
-		if a.Protocol == config.ProtocolGRPC {
-			dialer := &net.Dialer{}
-			p.Transport = &http2.Transport{
-				AllowHTTP: true,
-				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-					return dialer.DialContext(ctx, network, addr)
-				},
-			}
-		}
-		h.proxies[id] = p
 	}
 	h.router = NewRouter(routes)
 	return h
@@ -93,8 +99,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer release()
 	h.logger.Debug("proxy request", "service", route.ID, "method", r.Method, "path", r.URL.Path)
-	h.proxies[route.ID].ServeHTTP(w, r)
+	h.proxies[routeKey(route.ID, route.Endpoint)].ServeHTTP(w, r)
 }
+
+func routeKey(id, endpoint string) string { return id + "\x00" + endpoint }
 
 func grpcCode(ctx context.Context, err error) codes.Code {
 	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
