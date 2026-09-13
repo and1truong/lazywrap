@@ -123,7 +123,8 @@ apps:
         os.write(master, b"y")
         child.wait(timeout=15)
         assert child.returncode == 0
-        assert termios.tcgetattr(slave) == original, "terminal mode not restored"
+        restored = termios.tcgetattr(slave)
+        assert restored == original, f"terminal mode not restored: original={original!r}, restored={restored!r}"
         try:
             socket.create_connection(("127.0.0.1", app_port), timeout=.2).close()
             raise AssertionError("app survived TUI shutdown")
