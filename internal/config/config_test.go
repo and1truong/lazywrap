@@ -414,3 +414,91 @@ func TestExplicitZeroDurationIsRejected(t *testing.T) {
 		t.Fatal("expected explicit zero duration to be rejected")
 	}
 }
+
+func TestLoadComposesNestedResourcesRelativeToDeclaringFile(t *testing.T) {
+	dir := t.TempDir()
+	appsDir := filepath.Join(dir, "apps")
+	if err := os.MkdirAll(filepath.Join(appsDir, "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - apps/backend.yaml\n")
+	writeConfigFile(t, filepath.Join(appsDir, "backend.yaml"), "resources:\n  - nested/worker.yaml\napps:\n  api:\n    pwd: "+fmt.Sprintf("%q", dir)+"\n    launch: api\n    port: 1980\n")
+	writeConfigFile(t, filepath.Join(appsDir, "nested", "worker.yaml"), "apps:\n  worker:\n    pwd: "+fmt.Sprintf("%q", dir)+"\n    launch: worker\n    port: 1981\n")
+
+	cfg, err := Load(filepath.Join(dir, "lazywrap.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Apps) != 2 || cfg.Apps["api"].Launch != "api" || cfg.Apps["worker"].Launch != "worker" {
+		t.Fatalf("apps = %#v", cfg.Apps)
+	}
+	if cfg.Apps["api"].Source != filepath.Join(appsDir, "backend.yaml") {
+		t.Fatalf("api source = %q", cfg.Apps["api"].Source)
+	}
+}
+
+func TestLoadRejectsDuplicateAppsAcrossResources(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - one.yaml\n  - two.yaml\n")
+	app := "apps:\n  api:\n    pwd: "+fmt.Sprintf("%q", dir)+"\n    launch: api\n    port: 1980\n"
+	writeConfigFile(t, filepath.Join(dir, "one.yaml"), app)
+	writeConfigFile(t, filepath.Join(dir, "two.yaml"), app)
+
+	_, err := Load(filepath.Join(dir, "lazywrap.yaml"))
+	if err == nil || !strings.Contains(err.Error(), `duplicate app "api"`) || !strings.Contains(err.Error(), "one.yaml") || !strings.Contains(err.Error(), "two.yaml") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadRejectsCircularResourcesWithChain(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "lazywrap.yaml")
+	one := filepath.Join(dir, "one.yaml")
+	writeConfigFile(t, root, "resources:\n  - one.yaml\n")
+	writeConfigFile(t, one, "resources:\n  - lazywrap.yaml\n")
+
+	_, err := Load(root)
+	if err == nil || !strings.Contains(err.Error(), "circular resource include") || !strings.Contains(err.Error(), root+" -> "+one+" -> "+root) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadRejectsGlobalFieldsInResource(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - apps.yaml\n")
+	writeConfigFile(t, filepath.Join(dir, "apps.yaml"), "port: 4000\napps: {}\n")
+
+	_, err := Load(filepath.Join(dir, "lazywrap.yaml"))
+	if err == nil || !strings.Contains(err.Error(), `resource cannot set global field "port"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadStrictRejectsUnknownResourceField(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - apps.yaml\n")
+	writeConfigFile(t, filepath.Join(dir, "apps.yaml"), "appps: {}\n")
+
+	_, err := LoadStrict(filepath.Join(dir, "lazywrap.yaml"))
+	if err == nil || !strings.Contains(err.Error(), `unknown field "appps"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadReportsMissingResourceWithDeclaringFile(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "lazywrap.yaml")
+	writeConfigFile(t, root, "resources:\n  - missing.yaml\n")
+
+	_, err := Load(root)
+	if err == nil || !strings.Contains(err.Error(), `load resource "missing.yaml" declared in `+root) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func writeConfigFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
