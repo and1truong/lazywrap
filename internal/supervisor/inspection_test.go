@@ -55,3 +55,17 @@ func TestManualStopCancelsBuildAndBlocksLazyStart(t *testing.T) {
 		t.Fatalf("snapshot %+v", snap)
 	}
 }
+
+func TestFailedStopIsNotReportedAsStopped(t *testing.T) {
+	r := &fakeRunner{runErr: errors.New("external stop failed")}
+	s := New(config.RuntimeConfig{Apps: map[string]config.RuntimeAppConfig{
+		"api": {ID: "api", Stop: "stop", StopTimeout: time.Second},
+	}}, r, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.Service("api").state = StateRunning
+	if err := s.Action(context.Background(), "api", "stop"); err == nil {
+		t.Fatal("expected stop error")
+	}
+	if state := s.Snapshots()[0].State; state != StateFailed {
+		t.Fatalf("state = %s, want failed", state)
+	}
+}

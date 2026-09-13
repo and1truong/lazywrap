@@ -401,6 +401,10 @@ func (s *Service) stop() {
 	s.mu.Lock()
 	s.process = nil
 	s.state = StateStopped
+	if e != nil {
+		s.state = StateFailed
+		s.startErr = fmt.Errorf("stop failed: %w", e)
+	}
 	if s.startCancel != nil {
 		s.startCancel()
 		s.startCancel = nil
@@ -411,5 +415,7 @@ func (s *Service) stop() {
 	if e != nil {
 		s.logger.Warn("stop command failed", "err", e)
 	}
-	s.logger.Info("stopped")
+	if e == nil {
+		s.logger.Info("stopped")
+	}
 }
