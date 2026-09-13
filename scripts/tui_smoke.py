@@ -28,7 +28,9 @@ with tempfile.TemporaryDirectory() as tmp:
     app_script = os.path.join(tmp, "app.py")
     with open(app_script, "w") as out:
         out.write(f"""import http.server, socketserver
-with socketserver.TCPServer(('127.0.0.1', {app_port}), http.server.SimpleHTTPRequestHandler) as server:
+class Server(socketserver.TCPServer):
+    allow_reuse_address = True
+with Server(('127.0.0.1', {app_port}), http.server.SimpleHTTPRequestHandler) as server:
     print('fixture ready', flush=True)
     server.serve_forever()
 """)
