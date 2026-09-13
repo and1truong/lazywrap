@@ -136,3 +136,21 @@ func TestDoctorShowsComposedAppSource(t *testing.T) {
 		t.Fatalf("output = %q", output.String())
 	}
 }
+
+func TestDoctorDoesNotShowSourceForHomeRelativeRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, "lazywrap.yaml")
+	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %s\n    launch: server\n    port: 8080\n", strconv.Quote(home))
+	if err := os.WriteFile(configPath, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runDoctor("~/lazywrap.yaml", &output); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "source:") {
+		t.Fatalf("root app unexpectedly includes source annotation: %q", output.String())
+	}
+}
