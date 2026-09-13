@@ -111,3 +111,24 @@ func TestDoctorRejectsUnknownConfigFields(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestDoctorShowsComposedAppSource(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "lazywrap.yaml")
+	resourcePath := filepath.Join(dir, "apps.yaml")
+	if err := os.WriteFile(configPath, []byte("resources:\n  - apps.yaml\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %s\n    launch: server\n    port: 8080\n", strconv.Quote(dir))
+	if err := os.WriteFile(resourcePath, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runDoctor(configPath, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "source: "+resourcePath) {
+		t.Fatalf("output = %q", output.String())
+	}
+}
