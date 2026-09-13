@@ -124,6 +124,10 @@ apps:
         child.wait(timeout=15)
         assert child.returncode == 0
         restored = termios.tcgetattr(slave)
+        # Darwin sets PENDIN when canonical mode is restored. It is transient
+        # kernel input-reprocessing state, not a changed terminal setting.
+        restored[3] &= ~getattr(termios, "PENDIN", 0)
+        original[3] &= ~getattr(termios, "PENDIN", 0)
         assert restored == original, f"terminal mode not restored: original={original!r}, restored={restored!r}"
         try:
             socket.create_connection(("127.0.0.1", app_port), timeout=.2).close()
