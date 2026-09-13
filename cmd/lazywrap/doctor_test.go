@@ -128,7 +128,11 @@ func TestDoctorShowsComposedAppSource(t *testing.T) {
 	if err := runDoctor(configPath, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "source: "+resourcePath) {
+	canonicalResourcePath, err := filepath.EvalSymlinks(resourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "source: "+canonicalResourcePath) {
 		t.Fatalf("output = %q", output.String())
 	}
 }
