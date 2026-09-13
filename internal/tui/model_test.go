@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"log/slog"
 	"lazywrap/internal/observe"
 	"lazywrap/internal/supervisor"
+	"log/slog"
 	"strings"
 	"testing"
 )

@@ -457,7 +457,7 @@ func (m *model) appLines(height int) []string {
 			selected = i
 		}
 	}
-	start := max(0, selected-max(1, height-2)+1)
+	start := max(0, selected-max(1, (height-1)/2)+1)
 	for _, a := range apps[start:] {
 		prefix := "  "
 		if a.ID == m.selected {
@@ -467,7 +467,7 @@ func (m *model) appLines(height int) []string {
 		if len(a.Processes) > 0 {
 			stats = fmt.Sprintf("%.0f%% %s", a.CPU, memory(a.RSS))
 		}
-		lines = append(lines, fmt.Sprintf("%s%s [%s] %s", prefix, a.ID, a.State, stats))
+		lines = append(lines, fmt.Sprintf("%s%s [%s]", prefix, a.ID, a.State), "   "+stats)
 	}
 	return lines
 }

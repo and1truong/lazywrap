@@ -249,6 +249,10 @@ func (s *Service) fail(attempt chan struct{}, e error) {
 	}
 	s.state = StateFailed
 	s.startErr = e
+	if s.startCancel != nil {
+		s.startCancel()
+		s.startCancel = nil
+	}
 	close(attempt)
 	s.process = nil
 	s.mu.Unlock()
@@ -266,6 +270,10 @@ func (s *Service) watch(p *proc.Process) {
 		s.idleTimer = nil
 		s.process = nil
 		s.state = StateFailed
+		if s.startCancel != nil {
+			s.startCancel()
+			s.startCancel = nil
+		}
 		if r.Err == nil {
 			s.startErr = errors.New("service exited unexpectedly")
 		} else {
