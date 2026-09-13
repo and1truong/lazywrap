@@ -8,9 +8,11 @@ import (
 	"io"
 	"lazywrap/internal/config"
 	"lazywrap/internal/lifecycle"
+	"lazywrap/internal/observe"
 	proc "lazywrap/internal/process"
 	appProxy "lazywrap/internal/proxy"
 	"lazywrap/internal/supervisor"
+	"lazywrap/internal/tui"
 	"log/slog"
 	"net"
 	"net/http"
@@ -40,14 +42,18 @@ func runArgs(args []string, output io.Writer) error {
 		switch {
 		case len(args) == 1:
 			args = []string{"-h"}
-		case len(args) == 2 && args[1] == "doctor":
-			args = []string{"doctor", "-h"}
+		case len(args) == 2 && (args[1] == "doctor" || args[1] == "tui"):
+			args = []string{args[1], "-h"}
 		default:
 			return fmt.Errorf("help: unknown topic or unexpected arguments: %v (use lazywrap help)", args[1:])
 		}
 	}
 	if len(args) > 0 && args[0] == "doctor" {
 		return runDoctorArgs("", args[1:], output)
+	}
+	interactive := len(args) > 0 && args[0] == "tui"
+	if interactive {
+		args = args[1:]
 	}
 
 	flags := flag.NewFlagSet("lazywrap", flag.ContinueOnError)
@@ -56,9 +62,11 @@ func runArgs(args []string, output io.Writer) error {
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Lazy-start HTTP/gRPC/TCP proxy and local process supervisor.")
 		fmt.Fprintln(output, "\nUsage: lazywrap [-c FILE]")
+		fmt.Fprintln(output, "       lazywrap tui [-c FILE]")
 		fmt.Fprintln(output, "       lazywrap doctor [-c FILE]")
-		fmt.Fprintln(output, "       lazywrap help [doctor]")
+		fmt.Fprintln(output, "       lazywrap help [doctor|tui]")
 		fmt.Fprintln(output, "\nCommands:")
+		fmt.Fprintln(output, "  tui     Start proxy with interactive app, process, log and event panes")
 		fmt.Fprintln(output, "  doctor  Validate configuration without running hooks or app commands")
 		fmt.Fprintln(output, "  help    Show general help or help for a command")
 		fmt.Fprintln(output, "\nWithout a command, start the proxy and supervise configured services.")
@@ -73,7 +81,7 @@ func runArgs(args []string, output io.Writer) error {
 		}
 		return e
 	}
-	doctor := flags.NArg() == 1 && flags.Arg(0) == "doctor"
+	doctor := !interactive && flags.NArg() == 1 && flags.Arg(0) == "doctor"
 	if flags.NArg() != 0 && !doctor {
 		return fmt.Errorf("unexpected arguments: %v", flags.Args())
 	}
@@ -84,7 +92,12 @@ func runArgs(args []string, output io.Writer) error {
 	if doctor {
 		return runDoctor(resolvedPath, output)
 	}
-	return runServer(resolvedPath)
+	if interactive {
+		if err := tui.CheckTerminal(); err != nil {
+			return err
+		}
+	}
+	return runServerMode(resolvedPath, interactive)
 }
 
 func runDoctorArgs(defaultPath string, args []string, output io.Writer) error {
@@ -165,6 +178,10 @@ func doctorEndpoint(cfg config.RuntimeConfig, app config.RuntimeAppConfig) strin
 }
 
 func runServer(path string) error {
+	return runServerMode(path, false)
+}
+
+func runServerMode(path string, interactive bool) error {
 	cfg, e := config.Load(path)
 	if e != nil {
 		return fmt.Errorf("load configuration: %w", e)
@@ -179,6 +196,11 @@ func runServer(path string) error {
 		level = slog.LevelError
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	var observations *observe.Store
+	if interactive {
+		observations = observe.New()
+		logger = slog.New(&observe.Handler{Store: observations, Level: level})
+	}
 	runner := proc.NewRunner(logger)
 	hooks := lifecycle.New(cfg.StartUp, cfg.TearDown, runner, logger)
 	sup := supervisor.New(cfg, runner, logger)
@@ -221,13 +243,27 @@ func runServer(path string) error {
 	for _, tcpServer := range tcpServers {
 		go func(s *appProxy.TCPServer) { errc <- s.ListenAndServe() }(tcpServer)
 	}
+	uiCtx, cancelUI := context.WithCancel(signals)
+	defer cancelUI()
+	var uiErrors chan error
+	var uiDone chan struct{}
+	if interactive {
+		uiErrors = make(chan error, 1)
+		uiDone = make(chan struct{})
+		go func() { defer close(uiDone); uiErrors <- tui.Run(uiCtx, sup, observations) }()
+	}
 	var serveErr error
 	select {
+	case serveErr = <-uiErrors:
 	case e := <-errc:
 		if !errors.Is(e, http.ErrServerClosed) && !errors.Is(e, appProxy.ErrTCPServerClosed) {
 			serveErr = e
 		}
 	case <-signals.Done():
+	}
+	cancelUI()
+	if uiDone != nil {
+		<-uiDone
 	}
 	timeout := cfg.StopTimeout + 30*time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"os"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -15,6 +15,7 @@ func TestHelpDoesNotLoadConfiguration(t *testing.T) {
 		{"help"}, {"-h"}, {"--help"}, {"-c", missing, "--help"},
 		{"help", "doctor"}, {"doctor", "-h"}, {"doctor", "--help"},
 		{"doctor", "-c", missing, "--help"},
+		{"help", "tui"}, {"tui", "-h"}, {"tui", "-c", missing, "--help"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var output bytes.Buffer
@@ -34,6 +35,7 @@ func TestHelpAliasesMatch(t *testing.T) {
 	for _, pair := range [][2][]string{
 		{{"help"}, {"--help"}},
 		{{"help", "doctor"}, {"doctor", "--help"}},
+		{{"help", "tui"}, {"tui", "--help"}},
 	} {
 		var first, second bytes.Buffer
 		if err := runArgs(pair[0], &first); err != nil {
