@@ -461,6 +461,9 @@ func normalizeEndpoint(appID, name string, endpoint EndpointConfig, count, wrapp
 	if endpoint.Port < 1 || endpoint.Port > 65535 {
 		return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: invalid port %d", appID, name, endpoint.Port)
 	}
+	if prior, ok := listenPorts[endpoint.Port]; ok {
+		return RuntimeEndpointConfig{}, fmt.Errorf("endpoint %q backend port %d conflicts with endpoint %q listenPort", label, endpoint.Port, prior)
+	}
 	if prior, ok := ports[endpoint.Port]; ok {
 		return RuntimeEndpointConfig{}, fmt.Errorf("endpoints %q and %q use duplicate port %d", prior, label, endpoint.Port)
 	}
@@ -510,7 +513,12 @@ func normalizeEndpoint(appID, name string, endpoint EndpointConfig, count, wrapp
 			if err := registerHost(host); err != nil {
 				return RuntimeEndpointConfig{}, err
 			}
-			for _, alias := range result.Aliases {
+			for i, alias := range result.Aliases {
+				alias, err = normalizeHost(alias)
+				if err != nil {
+					return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: alias: %w", appID, name, err)
+				}
+				result.Aliases[i] = alias
 				if err := registerHost(alias); err != nil {
 					return RuntimeEndpointConfig{}, err
 				}
@@ -550,7 +558,12 @@ func normalizeEndpoint(appID, name string, endpoint EndpointConfig, count, wrapp
 		if err := registerHost(host); err != nil {
 			return RuntimeEndpointConfig{}, err
 		}
-		for _, alias := range result.Aliases {
+		for i, alias := range result.Aliases {
+			alias, err = normalizeHost(alias)
+			if err != nil {
+				return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: alias: %w", appID, name, err)
+			}
+			result.Aliases[i] = alias
 			if alias != host {
 				if err := registerHost(alias); err != nil {
 					return RuntimeEndpointConfig{}, err
@@ -566,6 +579,9 @@ func normalizeEndpoint(appID, name string, endpoint EndpointConfig, count, wrapp
 		}
 		if endpoint.ListenPort == wrapperPort {
 			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: listenPort %d conflicts with wrapper port", appID, name, endpoint.ListenPort)
+		}
+		if prior, ok := ports[endpoint.ListenPort]; ok {
+			return RuntimeEndpointConfig{}, fmt.Errorf("endpoint %q listenPort %d conflicts with endpoint %q backend port", label, endpoint.ListenPort, prior)
 		}
 		if prior, ok := listenPorts[endpoint.ListenPort]; ok {
 			return RuntimeEndpointConfig{}, fmt.Errorf("endpoints %q and %q use duplicate listenPort %d", prior, label, endpoint.ListenPort)

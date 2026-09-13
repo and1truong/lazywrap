@@ -223,6 +223,38 @@ func TestNormalizeRejectsInvalidEndpointConfigurations(t *testing.T) {
 	}
 }
 
+func TestNormalizeRejectsGeneratedAliasCollisionCaseInsensitively(t *testing.T) {
+	dir := t.TempDir()
+	_, err := (Config{Apps: map[string]AppConfig{
+		"Foo": {
+			Pwd: dir, Launch: "server",
+			Endpoints: map[string]EndpointConfig{
+				"web":     {Port: 8080, Primary: true},
+				"metrics": {Port: 9090, Host: "web.foo.localhost"},
+			},
+		},
+	}}).Normalize()
+	if err == nil || !strings.Contains(err.Error(), "duplicate host") {
+		t.Fatalf("error = %v, want duplicate host", err)
+	}
+}
+
+func TestNormalizeRejectsListenPortBackendPortCollision(t *testing.T) {
+	dir := t.TempDir()
+	_, err := (Config{Apps: map[string]AppConfig{
+		"foo": {
+			Pwd: dir, Launch: "server",
+			Endpoints: map[string]EndpointConfig{
+				"web": {Port: 8080, Primary: true},
+				"db":  {Port: 5432, Protocol: ProtocolTCP, ListenPort: 8080},
+			},
+		},
+	}}).Normalize()
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("error = %v, want listen/backend port conflict", err)
+	}
+}
+
 func TestNormalizeTCPRouting(t *testing.T) {
 	dir := t.TempDir()
 	c := Config{Port: 3000, Apps: map[string]AppConfig{
