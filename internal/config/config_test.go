@@ -255,6 +255,21 @@ func TestNormalizeRejectsListenPortBackendPortCollision(t *testing.T) {
 	}
 }
 
+func TestNormalizeRejectsBackendPortWrapperPortCollision(t *testing.T) {
+	dir := t.TempDir()
+	_, err := (Config{Port: 3000, Apps: map[string]AppConfig{
+		"foo": {
+			Pwd: dir, Launch: "server",
+			Endpoints: map[string]EndpointConfig{
+				"web": {Port: 3000, Primary: true},
+			},
+		},
+	}}).Normalize()
+	if err == nil || !strings.Contains(err.Error(), "conflicts with wrapper port") {
+		t.Fatalf("error = %v, want backend/wrapper port conflict", err)
+	}
+}
+
 func TestNormalizeTCPRouting(t *testing.T) {
 	dir := t.TempDir()
 	c := Config{Port: 3000, Apps: map[string]AppConfig{

@@ -461,6 +461,9 @@ func normalizeEndpoint(appID, name string, endpoint EndpointConfig, count, wrapp
 	if endpoint.Port < 1 || endpoint.Port > 65535 {
 		return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: invalid port %d", appID, name, endpoint.Port)
 	}
+	if endpoint.Port == wrapperPort {
+		return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: backend port %d conflicts with wrapper port", appID, name, endpoint.Port)
+	}
 	if prior, ok := listenPorts[endpoint.Port]; ok {
 		return RuntimeEndpointConfig{}, fmt.Errorf("endpoint %q backend port %d conflicts with endpoint %q listenPort", label, endpoint.Port, prior)
 	}
