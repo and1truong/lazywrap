@@ -81,14 +81,14 @@ group.initial.rebalance.delay.ms=0
 	if err != nil {
 		t.Fatal(err)
 	}
-	lazywrapPath := filepath.Join(tempDir, "lazywrap")
-	build := exec.Command("go", "build", "-o", lazywrapPath, "./cmd/lazywrap")
+	heronPath := filepath.Join(tempDir, "heron")
+	build := exec.Command("go", "build", "-o", heronPath, "./cmd/heron")
 	build.Dir = repoRoot
 	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build lazywrap: %v\n%s", err, output)
+		t.Fatalf("build heron: %v\n%s", err, output)
 	}
 
-	configPath := filepath.Join(tempDir, "lazywrap.json")
+	configPath := filepath.Join(tempDir, "heron.json")
 	config := map[string]any{
 		"port":         httpPort,
 		"startTimeout": "60s",
@@ -113,7 +113,7 @@ group.initial.rebalance.delay.ms=0
 	}
 
 	var logs lockedBuffer
-	cmd := exec.Command(lazywrapPath, "-c", configPath)
+	cmd := exec.Command(heronPath, "-c", configPath)
 	cmd.Dir = repoRoot
 	cmd.Stdout = &logs
 	cmd.Stderr = &logs
@@ -131,14 +131,14 @@ group.initial.rebalance.delay.ms=0
 		select {
 		case <-done:
 			if processErr != nil {
-				t.Logf("lazywrap exited with %v", processErr)
+				t.Logf("heron exited with %v", processErr)
 			}
 		case <-time.After(35 * time.Second):
 			_ = cmd.Process.Kill()
-			t.Log("forced lazywrap shutdown after timeout")
+			t.Log("forced heron shutdown after timeout")
 		}
 		if t.Failed() {
-			t.Logf("lazywrap logs:\n%s", logs.String())
+			t.Logf("heron logs:\n%s", logs.String())
 		}
 	}()
 
@@ -149,16 +149,16 @@ group.initial.rebalance.delay.ms=0
 	}
 
 	bootstrap := fmt.Sprintf("127.0.0.1:%d", proxyPort)
-	topic := "lazywrap-integration"
+	topic := "heron-integration"
 	runKafka(t, kafkaHome, nil, "kafka-topics.sh", "--bootstrap-server", bootstrap, "--create", "--topic", topic, "--partitions", "1", "--replication-factor", "1")
 	listed := runKafka(t, kafkaHome, nil, "kafka-topics.sh", "--bootstrap-server", bootstrap, "--list")
 	if !strings.Contains(listed, topic) {
 		t.Fatalf("topic list %q does not contain %q", listed, topic)
 	}
 
-	runKafka(t, kafkaHome, strings.NewReader("hello through lazywrap\n"), "kafka-console-producer.sh", "--bootstrap-server", bootstrap, "--topic", topic)
+	runKafka(t, kafkaHome, strings.NewReader("hello through heron\n"), "kafka-console-producer.sh", "--bootstrap-server", bootstrap, "--topic", topic)
 	consumed := runKafka(t, kafkaHome, nil, "kafka-console-consumer.sh", "--bootstrap-server", bootstrap, "--topic", topic, "--from-beginning", "--max-messages", "1", "--timeout-ms", "15000")
-	if !strings.Contains(consumed, "hello through lazywrap") {
+	if !strings.Contains(consumed, "hello through heron") {
 		t.Fatalf("consumer output = %q", consumed)
 	}
 }
@@ -222,12 +222,12 @@ func waitForHTTP(t *testing.T, endpoint string, processDone <-chan struct{}) {
 		}
 		select {
 		case <-processDone:
-			t.Fatal("lazywrap exited before becoming ready")
+			t.Fatal("heron exited before becoming ready")
 		default:
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("lazywrap HTTP listener did not become ready")
+	t.Fatal("heron HTTP listener did not become ready")
 }
 
 func shellQuote(value string) string {

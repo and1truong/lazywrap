@@ -125,7 +125,7 @@ func DefaultPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, ".config", "lazywrap.yaml"), nil
+	return filepath.Join(h, ".config", "heron.yaml"), nil
 }
 
 func expandHomePath(path string) (string, error) {

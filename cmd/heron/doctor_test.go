@@ -12,7 +12,7 @@ import (
 
 func TestDoctorChecksAndListsAppsInStableOrder(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf(`port: 3000
 apps:
   web:
@@ -54,7 +54,7 @@ apps:
 
 func TestDoctorAcceptsGlobalConfigFlagBeforeSubcommand(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %s\n    launch: server\n    port: 8080\n", strconv.Quote(dir))
 	if err := os.WriteFile(configPath, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestDoctorAcceptsGlobalConfigFlagBeforeSubcommand(t *testing.T) {
 func TestDoctorAcceptsProcessOnlyAppWithoutRunningCommands(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "launched")
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %s\n    launch: touch %s\n    port: 0\n", strconv.Quote(dir), strconv.Quote(marker))
 	if err := os.WriteFile(configPath, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestDoctorRejectsUnexpectedArguments(t *testing.T) {
 
 func TestDoctorRejectsUnknownConfigFields(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %s\n    lauch: server\n    launch: server\n    port: 8080\n", strconv.Quote(dir))
 	if err := os.WriteFile(configPath, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestDoctorRejectsUnknownConfigFields(t *testing.T) {
 
 func TestDoctorShowsComposedAppSource(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	resourcePath := filepath.Join(dir, "apps.yaml")
 	if err := os.WriteFile(configPath, []byte("resources:\n  - apps.yaml\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -139,14 +139,14 @@ func TestDoctorShowsComposedAppSource(t *testing.T) {
 func TestDoctorDoesNotShowSourceForHomeRelativeRoot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	configPath := filepath.Join(home, "lazywrap.yaml")
+	configPath := filepath.Join(home, "heron.yaml")
 	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %s\n    launch: server\n    port: 8080\n", strconv.Quote(home))
 	if err := os.WriteFile(configPath, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
 	}
 
 	var output bytes.Buffer
-	if err := runDoctor("~/lazywrap.yaml", &output); err != nil {
+	if err := runDoctor("~/heron.yaml", &output); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(output.String(), "source:") {

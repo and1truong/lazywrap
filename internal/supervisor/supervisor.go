@@ -3,8 +3,8 @@ package supervisor
 import (
 	"context"
 	"errors"
-	"lazywrap/internal/config"
-	proc "lazywrap/internal/process"
+	"github.com/and1truong/heron/internal/config"
+	proc "github.com/and1truong/heron/internal/process"
 	"log/slog"
 	"sync/atomic"
 )

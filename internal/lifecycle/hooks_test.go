@@ -3,7 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
-	proc "lazywrap/internal/process"
+	proc "github.com/and1truong/heron/internal/process"
 	"log/slog"
 	"testing"
 )

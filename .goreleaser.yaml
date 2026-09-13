@@ -1,11 +1,11 @@
 version: 2
 
-project_name: lazywrap
+project_name: heron
 
 builds:
-  - id: lazywrap
-    main: ./cmd/lazywrap
-    binary: lazywrap
+  - id: heron
+    main: ./cmd/heron
+    binary: heron
     env:
       - CGO_ENABLED=0
     goos:

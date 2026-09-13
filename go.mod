@@ -1,4 +1,4 @@
-module lazywrap
+module github.com/and1truong/heron
 
 go 1.22
 

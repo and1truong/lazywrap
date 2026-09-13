@@ -5,14 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/and1truong/heron/internal/config"
+	"github.com/and1truong/heron/internal/lifecycle"
+	"github.com/and1truong/heron/internal/observe"
+	proc "github.com/and1truong/heron/internal/process"
+	appProxy "github.com/and1truong/heron/internal/proxy"
+	"github.com/and1truong/heron/internal/supervisor"
+	"github.com/and1truong/heron/internal/tui"
 	"io"
-	"lazywrap/internal/config"
-	"lazywrap/internal/lifecycle"
-	"lazywrap/internal/observe"
-	proc "lazywrap/internal/process"
-	appProxy "lazywrap/internal/proxy"
-	"lazywrap/internal/supervisor"
-	"lazywrap/internal/tui"
 	"log/slog"
 	"net"
 	"net/http"
@@ -45,7 +45,7 @@ func runArgs(args []string, output io.Writer) error {
 		case len(args) == 2 && (args[1] == "doctor" || args[1] == "tui"):
 			args = []string{args[1], "-h"}
 		default:
-			return fmt.Errorf("help: unknown topic or unexpected arguments: %v (use lazywrap help)", args[1:])
+			return fmt.Errorf("help: unknown topic or unexpected arguments: %v (use heron help)", args[1:])
 		}
 	}
 	if len(args) > 0 && args[0] == "doctor" {
@@ -56,15 +56,15 @@ func runArgs(args []string, output io.Writer) error {
 		args = args[1:]
 	}
 
-	flags := flag.NewFlagSet("lazywrap", flag.ContinueOnError)
+	flags := flag.NewFlagSet("heron", flag.ContinueOnError)
 	flags.SetOutput(output)
-	path := flags.String("c", "", "configuration file (default ~/.config/lazywrap.yaml)")
+	path := flags.String("c", "", "configuration file (default ~/.config/heron.yaml)")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Lazy-start HTTP/gRPC/TCP proxy and local process supervisor.")
-		fmt.Fprintln(output, "\nUsage: lazywrap [-c FILE]")
-		fmt.Fprintln(output, "       lazywrap tui [-c FILE]")
-		fmt.Fprintln(output, "       lazywrap doctor [-c FILE]")
-		fmt.Fprintln(output, "       lazywrap help [doctor|tui]")
+		fmt.Fprintln(output, "\nUsage: heron [-c FILE]")
+		fmt.Fprintln(output, "       heron tui [-c FILE]")
+		fmt.Fprintln(output, "       heron doctor [-c FILE]")
+		fmt.Fprintln(output, "       heron help [doctor|tui]")
 		fmt.Fprintln(output, "\nCommands:")
 		fmt.Fprintln(output, "  tui     Start proxy with interactive app, process, log and event panes")
 		fmt.Fprintln(output, "  doctor  Validate configuration without running hooks or app commands")
@@ -73,7 +73,7 @@ func runArgs(args []string, output io.Writer) error {
 		fmt.Fprintln(output, "\nOptions:")
 		flags.PrintDefaults()
 		fmt.Fprintln(output, "  -h, --help\n        show help")
-		fmt.Fprintln(output, "\nExamples:\n  lazywrap -c ./config.yaml\n  lazywrap doctor -c ./config.yaml\n  lazywrap help doctor")
+		fmt.Fprintln(output, "\nExamples:\n  heron -c ./config.yaml\n  heron doctor -c ./config.yaml\n  heron help doctor")
 	}
 	if e := flags.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
@@ -101,16 +101,16 @@ func runArgs(args []string, output io.Writer) error {
 }
 
 func runDoctorArgs(defaultPath string, args []string, output io.Writer) error {
-	flags := flag.NewFlagSet("lazywrap doctor", flag.ContinueOnError)
+	flags := flag.NewFlagSet("heron doctor", flag.ContinueOnError)
 	flags.SetOutput(output)
-	path := flags.String("c", defaultPath, "configuration file (default ~/.config/lazywrap.yaml)")
+	path := flags.String("c", defaultPath, "configuration file (default ~/.config/heron.yaml)")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Validate configuration and list resolved apps without running hooks or app commands.")
-		fmt.Fprintln(output, "\nUsage: lazywrap doctor [-c FILE]")
+		fmt.Fprintln(output, "\nUsage: heron doctor [-c FILE]")
 		fmt.Fprintln(output, "\nOptions:")
 		flags.PrintDefaults()
 		fmt.Fprintln(output, "  -h, --help\n        show help")
-		fmt.Fprintln(output, "\nExample:\n  lazywrap doctor -c ./config.yaml")
+		fmt.Fprintln(output, "\nExample:\n  heron doctor -c ./config.yaml")
 	}
 	if e := flags.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {

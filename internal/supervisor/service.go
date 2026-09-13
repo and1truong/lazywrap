@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/and1truong/heron/internal/config"
+	proc "github.com/and1truong/heron/internal/process"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	"lazywrap/internal/config"
-	proc "lazywrap/internal/process"
 )
 
 var ErrClosing = errors.New("supervisor is shutting down")

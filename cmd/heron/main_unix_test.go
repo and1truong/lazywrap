@@ -34,15 +34,15 @@ func (b *lockedBuffer) String() string {
 
 func TestGracefulShutdownRunsLifecycleHooks(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "lazywrap")
+	binary := filepath.Join(dir, "heron")
 	build := exec.Command("go", "build", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build lazywrap: %v\n%s", err, output)
+		t.Fatalf("build heron: %v\n%s", err, output)
 	}
 
 	port := unusedPort(t)
 	outputPath := filepath.Join(dir, "hooks.log")
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	startCommand := "echo start >> " + strconv.Quote(outputPath)
 	tearDownCommand := "echo tearDown >> " + strconv.Quote(outputPath)
 	contents := fmt.Sprintf("port: %d\nstartUp:\n  - %s\ntearDown:\n  - %s\napps: {}\n", port, strconv.Quote(startCommand), strconv.Quote(tearDownCommand))
@@ -73,10 +73,10 @@ func TestGracefulShutdownRunsLifecycleHooks(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("lazywrap exited with error: %v\n%s", err, processOutput.String())
+			t.Fatalf("heron exited with error: %v\n%s", err, processOutput.String())
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatalf("lazywrap did not stop after interrupt\n%s", processOutput.String())
+		t.Fatalf("heron did not stop after interrupt\n%s", processOutput.String())
 	}
 
 	got, err := os.ReadFile(outputPath)
@@ -90,15 +90,15 @@ func TestGracefulShutdownRunsLifecycleHooks(t *testing.T) {
 
 func TestInterruptDuringStartUpIsGraceful(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "lazywrap")
+	binary := filepath.Join(dir, "heron")
 	build := exec.Command("go", "build", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build lazywrap: %v\n%s", err, output)
+		t.Fatalf("build heron: %v\n%s", err, output)
 	}
 
 	port := unusedPort(t)
 	outputPath := filepath.Join(dir, "hooks.log")
-	configPath := filepath.Join(dir, "lazywrap.yaml")
+	configPath := filepath.Join(dir, "heron.yaml")
 	startCommand := "echo start >> " + strconv.Quote(outputPath) + "; sleep 30"
 	tearDownCommand := "echo tearDown >> " + strconv.Quote(outputPath)
 	contents := fmt.Sprintf("port: %d\nstartUp:\n  - %s\ntearDown:\n  - %s\napps: {}\n", port, strconv.Quote(startCommand), strconv.Quote(tearDownCommand))
@@ -129,10 +129,10 @@ func TestInterruptDuringStartUpIsGraceful(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("lazywrap exited with error after interrupt during startUp: %v\n%s", err, processOutput.String())
+			t.Fatalf("heron exited with error after interrupt during startUp: %v\n%s", err, processOutput.String())
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatalf("lazywrap did not stop after interrupt during startUp\n%s", processOutput.String())
+		t.Fatalf("heron did not stop after interrupt during startUp\n%s", processOutput.String())
 	}
 
 	got, err := os.ReadFile(outputPath)
@@ -164,7 +164,7 @@ func waitForListener(t *testing.T, port int, done <-chan error, output *lockedBu
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-done:
-			t.Fatalf("lazywrap exited before listening: %v\n%s", err, output.String())
+			t.Fatalf("heron exited before listening: %v\n%s", err, output.String())
 		default:
 		}
 		connection, err := net.DialTimeout("tcp", address, 50*time.Millisecond)
@@ -174,7 +174,7 @@ func waitForListener(t *testing.T, port int, done <-chan error, output *lockedBu
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("lazywrap did not start listening\n%s", output.String())
+	t.Fatalf("heron did not start listening\n%s", output.String())
 }
 
 func waitForFileContent(t *testing.T, path, want string, done <-chan error, output *lockedBuffer) {
@@ -183,7 +183,7 @@ func waitForFileContent(t *testing.T, path, want string, done <-chan error, outp
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-done:
-			t.Fatalf("lazywrap exited before startup hook became observable: %v\n%s", err, output.String())
+			t.Fatalf("heron exited before startup hook became observable: %v\n%s", err, output.String())
 		default:
 		}
 		got, err := os.ReadFile(path)

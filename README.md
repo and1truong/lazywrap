@@ -1,10 +1,10 @@
-# lazywrap
+# Heron
 
 ![](assets/hero.png)
 
 Lazy-start HTTP/gRPC/TCP proxy and local process supervisor for development services.
 
-`lazywrap` keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
+`heron` keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
 
 Written in Go.
 
@@ -12,7 +12,7 @@ Written in Go.
 
 Local development environments often require many services, but most of them do not need to run continuously.
 
-`lazywrap` gives you one stable local endpoint while starting individual services only when traffic arrives.
+`heron` gives you one stable local endpoint while starting individual services only when traffic arrives.
 
 ```text
 Client
@@ -54,15 +54,15 @@ Services remain stopped until requested.
 ## Installation
 
 ```bash
-go install github.com/YOUR_USERNAME/lazywrap/cmd/lazywrap@latest
+go install github.com/and1truong/heron/cmd/heron@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/and1truong/lazywrap.git
-cd lazywrap
-go build -o lazywrap ./cmd/lazywrap
+git clone https://github.com/and1truong/heron.git
+cd heron
+go build -o heron ./cmd/heron
 ```
 
 ## Releases
@@ -74,29 +74,29 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release workflow runs the test suite and `go vet`, then GoReleaser publishes the generated artifacts to [GitHub Releases](https://github.com/and1truong/lazywrap/releases).
+The release workflow runs the test suite and `go vet`, then GoReleaser publishes the generated artifacts to [GitHub Releases](https://github.com/and1truong/heron/releases).
 
 ## Usage
 
 Show available commands, options, and examples:
 
 ```bash
-lazywrap help
-lazywrap help doctor
+heron help
+heron help doctor
 ```
 
-`-h` and `--help` are also supported, including `lazywrap doctor --help`.
+`-h` and `--help` are also supported, including `heron doctor --help`.
 
 
 ```bash
-lazywrap -c /path/to/config.yaml
+heron -c /path/to/config.yaml
 ```
 
 Validate the configuration and inspect every resolved app without running any
 hooks or app commands:
 
 ```bash
-lazywrap doctor -c /path/to/config.yaml
+heron doctor -c /path/to/config.yaml
 ```
 
 `doctor` rejects unknown fields and checks the routing, protocol, port,
@@ -104,10 +104,10 @@ working-directory, environment-file, and interpolation rules used at startup.
 It prints apps in a stable order with their public endpoint and backend target,
 and exits non-zero when validation fails.
 
-Without `-c`, `lazywrap` uses:
+Without `-c`, `heron` uses:
 
 ```text
-~/.config/lazywrap.yaml
+~/.config/heron.yaml
 ```
 
 ## Configuration
@@ -158,7 +158,7 @@ apps:
 
 | Option         | Description                                        | Default  |
 | -------------- | -------------------------------------------------- | -------- |
-| `port`         | Port `lazywrap` listens on                         | `3000`   |
+| `port`         | Port `heron` listens on                            | `3000`   |
 | `idle`         | Default service idle timeout                       | `30m`    |
 | `startTimeout` | Maximum time to wait for a service to become ready | `30s`    |
 | `stopTimeout`  | Maximum time allowed for service shutdown          | `10s`    |
@@ -171,7 +171,7 @@ apps:
 Use `resources` to split app definitions across local YAML files:
 
 ```yaml
-# lazywrap.yaml
+# heron.yaml
 port: 3000
 idle: 30m
 resources:
@@ -197,7 +197,7 @@ circular includes are rejected with the relevant source files. Resources are
 composition only: their order does not imply merge or override behavior. V1
 supports local YAML files, not URLs, globs, directories, inheritance, or patches.
 
-`startUp` and `tearDown` are process-wide hooks. Each command uses the platform shell and inherits lazywrap's working directory and environment, matching service command execution. A failed `startUp` command aborts startup. During shutdown, every `tearDown` command is attempted even when an earlier command fails.
+`startUp` and `tearDown` are process-wide hooks. Each command uses the platform shell and inherits heron's working directory and environment, matching service command execution. A failed `startUp` command aborts startup. During shutdown, every `tearDown` command is attempted even when an earlier command fails.
 
 ### Service options
 
@@ -299,7 +299,7 @@ values are unsupported. File values are literal: no shell execution or variable
 expansion is performed.
 
 Files and templates are resolved once when the configuration loads. Restart
-lazywrap to pick up changes. The resolved environment is shared by the service's
+heron to pick up changes. The resolved environment is shared by the service's
 build, launch, and stop commands, without modifying the parent environment or
 other services.
 
@@ -324,10 +324,10 @@ apps:
     includePrefix: false
 ```
 
-Start `lazywrap`:
+Start `heron`:
 
 ```bash
-lazywrap
+heron
 ```
 
 Then request:
@@ -336,7 +336,7 @@ Then request:
 curl http://localhost:3000/service/api/hello
 ```
 
-If `api` is stopped, `lazywrap`:
+If `api` is stopped, `heron`:
 
 1. Starts the service.
 2. Waits for `localhost:1980` to accept connections.
@@ -376,7 +376,7 @@ With wrapper port `3000`, `http://docs.localhost:3000/guide?q=1` is proxied to `
 
 Backends receive `Host: 127.0.0.1:<service-port>` so they identify the local target consistently; the incoming hostname is retained in `X-Forwarded-Host`.
 
-Lazywrap listens on IPv4 loopback and, when available, IPv6 loopback. Nested
+Heron listens on IPv4 loopback and, when available, IPv6 loopback. Nested
 `.localhost` names such as `metrics.foo.localhost` therefore require no hosts
 file entries on platforms and clients implementing the reserved `.localhost`
 namespace, including current macOS browsers.
@@ -398,11 +398,11 @@ apps:
       grpc: true
 ```
 
-Connect a plaintext gRPC client to `greeter.localhost:3000`. lazywrap accepts HTTP/2 cleartext (h2c), starts the backend on the first RPC, waits for readiness, and proxies to `127.0.0.1:50051` without protobuf descriptors. Unary, client-streaming, server-streaming, bidirectional-streaming, metadata, deadlines, cancellation, status details, and trailers pass through transparently.
+Connect a plaintext gRPC client to `greeter.localhost:3000`. heron accepts HTTP/2 cleartext (h2c), starts the backend on the first RPC, waits for readiness, and proxies to `127.0.0.1:50051` without protobuf descriptors. Unary, client-streaming, server-streaming, bidirectional-streaming, metadata, deadlines, cancellation, status details, and trailers pass through transparently.
 
 An open RPC or stream keeps the service active. The idle timer starts only after the final RPC closes. gRPC services use hostname routing and do not support `path`, `includePrefix`, or `listenPort`.
 
-When `health.grpc` is enabled, the backend must implement the [standard gRPC health checking protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) and report `SERVING` for the overall server (`service: ""`). Without it, lazywrap considers the service ready when its TCP port accepts connections.
+When `health.grpc` is enabled, the backend must implement the [standard gRPC health checking protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) and report `SERVING` for the overall server (`service: ""`). Without it, heron considers the service ready when its TCP port accepts connections.
 
 The initial implementation is local-development oriented: plaintext h2c only. TLS termination, TLS upstreams, and gRPC-Web translation are not currently supported.
 
@@ -422,7 +422,7 @@ apps:
     idle: 30m
 ```
 
-Connect through the lazywrap listener:
+Connect through the heron listener:
 
 ```bash
 psql postgres://user:password@127.0.0.1:15432/database
@@ -434,9 +434,9 @@ TCP services require a unique `listenPort`. They do not support `path`, `host`, 
 
 ### Single-broker Kafka
 
-A local single-broker Kafka instance works through the generic TCP proxy. Kafka must advertise the lazywrap listener, not its backend listener, because clients reconnect to the broker address returned in Kafka metadata.
+A local single-broker Kafka instance works through the generic TCP proxy. Kafka must advertise the heron listener, not its backend listener, because clients reconnect to the broker address returned in Kafka metadata.
 
-Configure lazywrap:
+Configure heron:
 
 ```yaml
 apps:
@@ -472,7 +472,7 @@ To run the opt-in integration test against a local Kafka distribution:
 KAFKA_HOME=/path/to/kafka go test -tags=integration ./integration
 ```
 
-The test formats an isolated single-node KRaft data directory, starts Kafka lazily through lazywrap, and verifies topic administration plus a producer/consumer round trip using Kafka's CLI clients.
+The test formats an isolated single-node KRaft data directory, starts Kafka lazily through heron, and verifies topic administration plus a producer/consumer round trip using Kafka's CLI clients.
 
 ## Path forwarding
 
@@ -547,13 +547,13 @@ AND
 active requests == 0
 ```
 
-This prevents LazyWrap from stopping a service while it is still handling traffic.
+This prevents Heron from stopping a service while it is still handling traffic.
 
 ## Process management
 
-If `stop` is configured, LazyWrap executes it when the service needs to shut down.
+If `stop` is configured, Heron executes it when the service needs to shut down.
 
-Otherwise, LazyWrap terminates the process it started.
+Otherwise, Heron terminates the process it started.
 
 Graceful termination is attempted first. A process that does not exit within the shutdown timeout may be forcefully terminated.
 
@@ -570,7 +570,7 @@ INFO  [api] idle timeout reached
 INFO  [api] stopping service
 ```
 
-Child process stdout and stderr are forwarded through LazyWrap with the service name attached.
+Child process stdout and stderr are forwarded through Heron with the service name attached.
 
 Supported levels:
 
@@ -583,7 +583,7 @@ error
 
 ## Graceful shutdown
 
-When LazyWrap receives `SIGINT` or `SIGTERM`, it:
+When Heron receives `SIGINT` or `SIGTERM`, it:
 
 1. Stops accepting new work.
 2. Gracefully shuts down the HTTP server.
@@ -593,7 +593,7 @@ When LazyWrap receives `SIGINT` or `SIGTERM`, it:
 
 ## Use cases
 
-LazyWrap is useful for:
+Heron is useful for:
 
 * local microservice development
 * rarely used development tools
@@ -618,16 +618,16 @@ MIT
 ## Interactive TUI
 
 ```sh
-lazywrap                    # normal proxy/supervisor, plain log output
-lazywrap tui                # opt-in interactive supervisor
-lazywrap tui -c ./config.yaml
-lazywrap help tui
+heron                    # normal proxy/supervisor, plain log output
+heron tui                # opt-in interactive supervisor
+heron tui -c ./config.yaml
+heron help tui
 ```
 
 Both modes run the same proxy and supervisor. Apps remain lazy until traffic or
 an explicit Start. TUI requires an interactive stdin/stdout on Linux or macOS;
 redirected input/output is rejected before hooks or listeners start. It starts
-its own supervisor; it does not attach to an existing Lazywrap instance.
+its own supervisor; it does not attach to an existing Heron instance.
 
 The left pane lists managed apps. The right pane shows overview/process tree
 above logs or lifecycle events. Small terminals show a resize hint.

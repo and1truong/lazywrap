@@ -47,11 +47,11 @@ apps:
     idle: 0
 """)
 
-    refused = subprocess.run(["./lazywrap-test", "tui", "-c", config], capture_output=True)
+    refused = subprocess.run(["./heron-test", "tui", "-c", config], capture_output=True)
     assert refused.returncode != 0 and b"interactive terminal" in refused.stderr
 
     # Normal invocation remains a plain server and never writes terminal escapes.
-    normal = subprocess.Popen(["./lazywrap-test", "-c", config], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    normal = subprocess.Popen(["./heron-test", "-c", config], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         deadline = time.monotonic() + 10
         while True:
@@ -72,7 +72,7 @@ apps:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
     original = termios.tcgetattr(slave)
-    child = subprocess.Popen(["./lazywrap-test", "tui", "-c", config], stdin=slave, stdout=slave, stderr=slave)
+    child = subprocess.Popen(["./heron-test", "tui", "-c", config], stdin=slave, stdout=slave, stderr=slave)
     transcript = bytearray()
 
     def until(text, timeout=30):
