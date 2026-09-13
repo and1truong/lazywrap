@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"os"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )

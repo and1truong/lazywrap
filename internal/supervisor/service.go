@@ -322,7 +322,9 @@ func (s *Service) beginStopLocked() {
 	s.stopErr = nil
 	// Cancel build/readiness before stop waits for its worker. Running services
 	// still use the graceful termination path below.
-	if wasStarting && s.startCancel != nil { s.startCancel() }
+	if wasStarting && s.startCancel != nil {
+		s.startCancel()
+	}
 	if wasStarting && s.startDone != nil {
 		s.startErr = ErrClosing
 		close(s.startDone)
@@ -361,7 +363,9 @@ func (s *Service) stop() {
 	s.mu.Lock()
 	workerDone := s.workerDone
 	s.mu.Unlock()
-	if workerDone != nil { <-workerDone }
+	if workerDone != nil {
+		<-workerDone
+	}
 	s.mu.Lock()
 	p := s.process
 	s.mu.Unlock()
@@ -389,7 +393,10 @@ func (s *Service) stop() {
 	s.mu.Lock()
 	s.process = nil
 	s.state = StateStopped
-	if s.startCancel != nil { s.startCancel(); s.startCancel = nil }
+	if s.startCancel != nil {
+		s.startCancel()
+		s.startCancel = nil
+	}
 	s.stopErr = e
 	close(s.stopDone)
 	s.mu.Unlock()

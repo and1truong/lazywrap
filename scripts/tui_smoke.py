@@ -1,5 +1,4 @@
 """Real PTY smoke: opt-in, actions, process/log panes, terminal restoration."""
-import errno
 import fcntl
 import os
 import pty
@@ -86,7 +85,7 @@ apps:
         key("l3")
         until(b"GET /")
         key("3p2\r")
-        until(b"python3")
+        until(b" PPID ")
         key("2x")
         until(b"[stopped]")
         try:

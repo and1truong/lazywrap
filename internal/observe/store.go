@@ -13,12 +13,14 @@ import (
 const Capacity = 500
 
 type Entry struct {
-	At time.Time
+	Seq                   uint64
+	At                    time.Time
 	Service, Stream, Text string
 }
 
 type Store struct {
-	mu sync.Mutex
+	mu           sync.Mutex
+	seq          uint64
 	logs, events map[string][]Entry
 }
 
@@ -27,12 +29,21 @@ func New() *Store { return &Store{logs: make(map[string][]Entry), events: make(m
 func (s *Store) append(e Entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.seq++
+	e.Seq = s.seq
 	target := s.events
-	if e.Stream != "" { target = s.logs }
+	if e.Stream != "" {
+		target = s.logs
+	}
 	entries := target[e.Service]
-	if len(entries) == Capacity { copy(entries, entries[1:]); entries = entries[:Capacity-1] }
+	if len(entries) == Capacity {
+		copy(entries, entries[1:])
+		entries = entries[:Capacity-1]
+	}
 	// Bound individual records too; children may emit very long lines.
-	if len(e.Text) > 4096 { e.Text = e.Text[:4096] + "…" }
+	if len(e.Text) > 4096 {
+		e.Text = e.Text[:4096] + "…"
+	}
 	target[e.Service] = append(entries, e)
 }
 
@@ -40,7 +51,9 @@ func (s *Store) Entries(service string, events bool) []Entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	target := s.logs
-	if events { target = s.events }
+	if events {
+		target = s.events
+	}
 	return append([]Entry(nil), target[service]...)
 }
 
@@ -57,12 +70,17 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	r.Attrs(func(a slog.Attr) bool { attrs = append(attrs, a); return true })
 	for _, a := range attrs {
 		switch a.Key {
-		case "service": e.Service = a.Value.String()
-		case "stream": e.Stream = a.Value.String()
-		default: e.Text += fmt.Sprintf(" %s=%s", a.Key, a.Value)
+		case "service":
+			e.Service = a.Value.String()
+		case "stream":
+			e.Stream = a.Value.String()
+		default:
+			e.Text += fmt.Sprintf(" %s=%s", a.Key, a.Value)
 		}
 	}
-	if h.group != "" { e.Text = strings.TrimSpace(h.group + " " + e.Text) }
+	if h.group != "" {
+		e.Text = strings.TrimSpace(h.group + " " + e.Text)
+	}
 	h.Store.append(e)
 	return nil
 }

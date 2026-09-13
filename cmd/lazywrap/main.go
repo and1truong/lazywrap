@@ -52,7 +52,9 @@ func runArgs(args []string, output io.Writer) error {
 		return runDoctorArgs("", args[1:], output)
 	}
 	interactive := len(args) > 0 && args[0] == "tui"
-	if interactive { args = args[1:] }
+	if interactive {
+		args = args[1:]
+	}
 
 	flags := flag.NewFlagSet("lazywrap", flag.ContinueOnError)
 	flags.SetOutput(output)
@@ -91,7 +93,9 @@ func runArgs(args []string, output io.Writer) error {
 		return runDoctor(resolvedPath, output)
 	}
 	if interactive {
-		if err := tui.CheckTerminal(); err != nil { return err }
+		if err := tui.CheckTerminal(); err != nil {
+			return err
+		}
 	}
 	return runServerMode(resolvedPath, interactive)
 }
@@ -258,7 +262,9 @@ func runServerMode(path string, interactive bool) error {
 	case <-signals.Done():
 	}
 	cancelUI()
-	if uiDone != nil { <-uiDone }
+	if uiDone != nil {
+		<-uiDone
+	}
 	timeout := cfg.StopTimeout + 30*time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
