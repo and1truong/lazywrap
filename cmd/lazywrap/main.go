@@ -46,17 +46,13 @@ func runArgs(args []string, output io.Writer) error {
 			return fmt.Errorf("help: unknown topic or unexpected arguments: %v (use lazywrap help)", args[1:])
 		}
 	}
-	def, e := config.DefaultPath()
-	if e != nil {
-		return e
-	}
 	if len(args) > 0 && args[0] == "doctor" {
-		return runDoctorArgs(def, args[1:], output)
+		return runDoctorArgs("", args[1:], output)
 	}
 
 	flags := flag.NewFlagSet("lazywrap", flag.ContinueOnError)
 	flags.SetOutput(output)
-	path := flags.String("c", def, "configuration file")
+	path := flags.String("c", "", "configuration file (default ~/.config/lazywrap.yaml)")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Lazy-start HTTP/gRPC/TCP proxy and local process supervisor.")
 		fmt.Fprintln(output, "\nUsage: lazywrap [-c FILE]")
@@ -77,19 +73,24 @@ func runArgs(args []string, output io.Writer) error {
 		}
 		return e
 	}
-	if flags.NArg() == 1 && flags.Arg(0) == "doctor" {
-		return runDoctor(*path, output)
-	}
-	if flags.NArg() != 0 {
+	doctor := flags.NArg() == 1 && flags.Arg(0) == "doctor"
+	if flags.NArg() != 0 && !doctor {
 		return fmt.Errorf("unexpected arguments: %v", flags.Args())
 	}
-	return runServer(*path)
+	resolvedPath, e := resolveConfigPath(flags, *path)
+	if e != nil {
+		return e
+	}
+	if doctor {
+		return runDoctor(resolvedPath, output)
+	}
+	return runServer(resolvedPath)
 }
 
 func runDoctorArgs(defaultPath string, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("lazywrap doctor", flag.ContinueOnError)
 	flags.SetOutput(output)
-	path := flags.String("c", defaultPath, "configuration file")
+	path := flags.String("c", defaultPath, "configuration file (default ~/.config/lazywrap.yaml)")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Validate configuration and list resolved apps without running hooks or app commands.")
 		fmt.Fprintln(output, "\nUsage: lazywrap doctor [-c FILE]")
@@ -107,7 +108,25 @@ func runDoctorArgs(defaultPath string, args []string, output io.Writer) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("doctor: unexpected arguments: %v", flags.Args())
 	}
-	return runDoctor(*path, output)
+	resolvedPath, e := resolveConfigPath(flags, *path)
+	if e != nil {
+		return e
+	}
+	return runDoctor(resolvedPath, output)
+}
+
+// Resolve the default only after parsing, so help never requires a home directory.
+func resolveConfigPath(flags *flag.FlagSet, path string) (string, error) {
+	explicit := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "c" {
+			explicit = true
+		}
+	})
+	if explicit || path != "" {
+		return path, nil
+	}
+	return config.DefaultPath()
 }
 
 func runDoctor(path string, output io.Writer) error {

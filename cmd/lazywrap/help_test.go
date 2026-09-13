@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +57,29 @@ func TestHelpRejectsInvalidTopics(t *testing.T) {
 		var output bytes.Buffer
 		if err := runArgs(args, &output); err == nil || !strings.Contains(err.Error(), "help:") {
 			t.Fatalf("runArgs(%q) error = %v", args, err)
+		}
+	}
+}
+
+func TestHelpWithoutHomeDirectory(t *testing.T) {
+	homeVariable := "HOME"
+	switch runtime.GOOS {
+	case "windows":
+		homeVariable = "USERPROFILE"
+	case "plan9":
+		homeVariable = "home"
+	}
+	t.Setenv(homeVariable, "")
+	if err := os.Unsetenv(homeVariable); err != nil {
+		t.Fatal(err)
+	}
+	TestHelpDoesNotLoadConfiguration(t)
+	TestHelpAliasesMatch(t)
+	TestHelpRejectsInvalidTopics(t)
+
+	for _, args := range [][]string{nil, {"doctor"}} {
+		if err := runArgs(args, &bytes.Buffer{}); err == nil {
+			t.Fatalf("runArgs(%q) should fail when the default path cannot be resolved", args)
 		}
 	}
 }
