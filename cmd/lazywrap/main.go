@@ -155,9 +155,14 @@ func runDoctor(path string, output io.Writer) error {
 	sort.Strings(ids)
 
 	fmt.Fprintf(output, "[ok] configuration: %s\n", path)
+	rootSource, _ := config.CanonicalPath(path)
 	for _, id := range ids {
 		app := cfg.Apps[id]
-		fmt.Fprintf(output, "[ok] app %s: %s -> 127.0.0.1:%d (pwd: %s)\n", id, doctorEndpoint(cfg, app), app.Port, app.Pwd)
+		source := ""
+		if app.Source != "" && app.Source != rootSource {
+			source = fmt.Sprintf(", source: %s", app.Source)
+		}
+		fmt.Fprintf(output, "[ok] app %s: %s -> 127.0.0.1:%d (pwd: %s%s)\n", id, doctorEndpoint(cfg, app), app.Port, app.Pwd, source)
 	}
 	fmt.Fprintf(output, "[ok] %d app(s) checked\n", len(ids))
 	return nil

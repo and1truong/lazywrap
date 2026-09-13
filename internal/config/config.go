@@ -27,6 +27,7 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 }
 
 type Config struct {
+	Resources    []string             `yaml:"resources,omitempty"`
 	Port         int                  `yaml:"port"`
 	Idle         Duration             `yaml:"idle"`
 	LogLevel     string               `yaml:"logLevel"`
@@ -37,7 +38,7 @@ type Config struct {
 	Apps         map[string]AppConfig `yaml:"apps"`
 }
 type AppConfig struct {
-	EnvFiles []string `yaml:"envFiles,omitempty"`
+	EnvFiles     []string          `yaml:"envFiles,omitempty"`
 	Pwd           string            `yaml:"pwd"`
 	Build         string            `yaml:"build"`
 	Launch        string            `yaml:"launch"`
@@ -64,6 +65,7 @@ type RuntimeConfig struct {
 }
 type RuntimeAppConfig struct {
 	ID, Pwd, Build, Launch, Stop, Protocol, Path, Host string
+	Source                                             string
 	Env                                                map[string]string
 	ListenPort, Port                                   int
 	Idle, StartTimeout, StopTimeout                    time.Duration
@@ -118,7 +120,11 @@ func LoadStrict(path string) (RuntimeConfig, error) {
 }
 
 func load(path string, strict bool) (RuntimeConfig, error) {
-	b, err := os.ReadFile(path)
+	root, err := CanonicalPath(path)
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
+	b, err := os.ReadFile(root)
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
@@ -126,9 +132,145 @@ func load(path string, strict bool) (RuntimeConfig, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(b))
 	decoder.KnownFields(strict)
 	if err := decoder.Decode(&c); err != nil {
+		return RuntimeConfig{}, fmt.Errorf("decode %s: %w", root, err)
+	}
+	sources := make(map[string]string, len(c.Apps))
+	for id := range c.Apps {
+		sources[id] = root
+	}
+	loader := resourceLoader{strict: strict, apps: c.Apps, sources: sources}
+	if loader.apps == nil {
+		loader.apps = make(map[string]AppConfig)
+	}
+	if err := loader.loadAll(c.Resources, root, []string{root}); err != nil {
 		return RuntimeConfig{}, err
 	}
-	return c.Normalize()
+	c.Apps = loader.apps
+	runtime, err := c.Normalize()
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
+	for id, source := range loader.sources {
+		app := runtime.Apps[id]
+		app.Source = source
+		runtime.Apps[id] = app
+	}
+	return runtime, nil
+}
+
+type resourceConfig struct {
+	Resources []string             `yaml:"resources,omitempty"`
+	Apps      map[string]AppConfig `yaml:"apps,omitempty"`
+}
+
+type resourceLoader struct {
+	strict  bool
+	apps    map[string]AppConfig
+	sources map[string]string
+}
+
+var globalFields = map[string]struct{}{
+	"port": {}, "idle": {}, "logLevel": {}, "startTimeout": {},
+	"stopTimeout": {}, "startUp": {}, "tearDown": {},
+}
+
+// CanonicalPath expands a leading home directory marker and resolves the path
+// to the same canonical form used for configuration source tracking.
+func CanonicalPath(path string) (string, error) {
+	expanded, err := expandHomePath(path)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", err
+	}
+	canonical, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return canonical, nil
+}
+
+func (l *resourceLoader) loadAll(resources []string, declaringFile string, stack []string) error {
+	for _, resource := range resources {
+		resource = strings.TrimSpace(resource)
+		if resource == "" {
+			return fmt.Errorf("resource in %s has an empty path", declaringFile)
+		}
+		path, err := expandHomePath(resource)
+		if err != nil {
+			return fmt.Errorf("load resource %q declared in %s: %w", resource, declaringFile, err)
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(filepath.Dir(declaringFile), path)
+		}
+		canonical, err := CanonicalPath(path)
+		if err != nil {
+			return fmt.Errorf("load resource %q declared in %s: %w", resource, declaringFile, err)
+		}
+		for i, ancestor := range stack {
+			if ancestor == canonical {
+				chain := append(append([]string(nil), stack[i:]...), canonical)
+				return fmt.Errorf("circular resource include: %s", strings.Join(chain, " -> "))
+			}
+		}
+		if err := l.loadOne(canonical, append(stack, canonical)); err != nil {
+			return fmt.Errorf("resource %s: %w", canonical, err)
+		}
+	}
+	return nil
+}
+
+func (l *resourceLoader) loadOne(path string, stack []string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var document yaml.Node
+	if err := yaml.Unmarshal(b, &document); err != nil {
+		return fmt.Errorf("decode: %w", err)
+	}
+	if err := validateResourceFields(&document, path, l.strict); err != nil {
+		return err
+	}
+	var resource resourceConfig
+	decoder := yaml.NewDecoder(bytes.NewReader(b))
+	decoder.KnownFields(l.strict)
+	if err := decoder.Decode(&resource); err != nil {
+		return fmt.Errorf("decode: %w", err)
+	}
+	for id, app := range resource.Apps {
+		if first, exists := l.sources[id]; exists {
+			return fmt.Errorf("duplicate app %q: first defined in %s, redefined in %s", id, first, path)
+		}
+		l.apps[id] = app
+		l.sources[id] = path
+	}
+	return l.loadAll(resource.Resources, path, stack)
+}
+
+func validateResourceFields(document *yaml.Node, path string, strict bool) error {
+	if len(document.Content) == 0 {
+		return nil
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s: resource must be a YAML mapping", path)
+	}
+	for i := 0; i < len(root.Content); i += 2 {
+		field := root.Content[i].Value
+		if field == "resources" || field == "apps" {
+			continue
+		}
+		if _, global := globalFields[field]; global {
+			return fmt.Errorf("%s: resource cannot set global field %q", path, field)
+		}
+		if strict {
+			return fmt.Errorf("%s: unknown field %q", path, field)
+		}
+	}
+	return nil
 }
 func (c Config) Normalize() (RuntimeConfig, error) {
 	if c.Port == 0 {
