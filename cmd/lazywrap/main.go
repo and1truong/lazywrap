@@ -307,8 +307,13 @@ func listenLoopbacks(port int) ([]net.Listener, error) {
 	}
 	listeners := []net.Listener{ipv4}
 	ipv6, err := net.Listen("tcp6", net.JoinHostPort("::1", fmt.Sprint(port)))
-	if err == nil {
-		listeners = append(listeners, ipv6)
+	if err != nil {
+		if errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EPROTONOSUPPORT) || errors.Is(err, syscall.EADDRNOTAVAIL) {
+			return listeners, nil
+		}
+		_ = ipv4.Close()
+		return nil, err
 	}
+	listeners = append(listeners, ipv6)
 	return listeners, nil
 }
