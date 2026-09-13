@@ -162,23 +162,34 @@ func runDoctor(path string, output io.Writer) error {
 		if app.Source != "" && app.Source != rootSource {
 			source = fmt.Sprintf(", source: %s", app.Source)
 		}
-		fmt.Fprintf(output, "[ok] app %s: %s -> 127.0.0.1:%d (pwd: %s%s)\n", id, doctorEndpoint(cfg, app), app.Port, app.Pwd, source)
+		endpoints := app.EndpointList()
+		if len(endpoints) == 0 {
+			fmt.Fprintf(output, "[ok] app %s: process only (pwd: %s%s)\n", id, app.Pwd, source)
+			continue
+		}
+		if len(endpoints) == 1 && endpoints[0].Name == "default" {
+			fmt.Fprintf(output, "[ok] app %s: %s -> 127.0.0.1:%d (pwd: %s%s)\n", id, doctorEndpoint(cfg, endpoints[0]), endpoints[0].Port, app.Pwd, source)
+			continue
+		}
+		for _, endpoint := range endpoints {
+			fmt.Fprintf(output, "[ok] app %s endpoint %s: %s -> 127.0.0.1:%d (pwd: %s%s)\n", id, endpoint.Name, doctorEndpoint(cfg, endpoint), endpoint.Port, app.Pwd, source)
+		}
 	}
 	fmt.Fprintf(output, "[ok] %d app(s) checked\n", len(ids))
 	return nil
 }
 
-func doctorEndpoint(cfg config.RuntimeConfig, app config.RuntimeAppConfig) string {
-	switch app.Protocol {
+func doctorEndpoint(cfg config.RuntimeConfig, endpoint config.RuntimeEndpointConfig) string {
+	switch endpoint.Protocol {
 	case config.ProtocolTCP:
-		return fmt.Sprintf("tcp://127.0.0.1:%d", app.ListenPort)
+		return fmt.Sprintf("tcp://127.0.0.1:%d", endpoint.ListenPort)
 	case config.ProtocolGRPC:
-		return fmt.Sprintf("grpc://%s:%d", app.Host, cfg.Port)
+		return fmt.Sprintf("grpc://%s:%d", endpoint.Host, cfg.Port)
 	default:
-		if app.Host != "" {
-			return fmt.Sprintf("http://%s:%d", app.Host, cfg.Port)
+		if endpoint.Host != "" {
+			return fmt.Sprintf("http://%s:%d", endpoint.Host, cfg.Port)
 		}
-		return fmt.Sprintf("http://127.0.0.1:%d%s", cfg.Port, app.Path)
+		return fmt.Sprintf("http://127.0.0.1:%d%s", cfg.Port, endpoint.Path)
 	}
 }
 
@@ -212,15 +223,17 @@ func runServerMode(path string, interactive bool) error {
 	drainer := appProxy.NewDrainHandler(appProxy.NewHandler(cfg, sup, logger))
 	http2Server := &http2.Server{}
 	handler := h2c.NewHandler(drainer, http2Server)
-	server := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", cfg.Port), Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	if e := http2.ConfigureServer(server, http2Server); e != nil {
 		return fmt.Errorf("configure HTTP/2 server: %w", e)
 	}
 	connections := appProxy.NewConnectionTracker()
 	tcpServers := make([]*appProxy.TCPServer, 0)
-	for _, app := range cfg.Apps {
-		if app.Protocol == config.ProtocolTCP {
-			tcpServers = append(tcpServers, appProxy.NewTCPServer(app, sup, logger))
+	for id, app := range cfg.Apps {
+		for _, endpoint := range app.EndpointList() {
+			if endpoint.Protocol == config.ProtocolTCP {
+				tcpServers = append(tcpServers, appProxy.NewTCPEndpointServer(id, endpoint, sup, logger))
+			}
 		}
 	}
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -236,15 +249,17 @@ func runServerMode(path string, interactive bool) error {
 		}
 		return e
 	}
-	listener, e := net.Listen("tcp", server.Addr)
+	listeners, e := listenLoopbacks(cfg.Port)
 	if e != nil {
 		return e
 	}
-	errc := make(chan error, 1+len(tcpServers))
-	go func() {
-		logger.Info("listening", "address", server.Addr)
-		errc <- server.Serve(connections.Track(listener))
-	}()
+	errc := make(chan error, len(listeners)+len(tcpServers))
+	for _, listener := range listeners {
+		go func(listener net.Listener) {
+			logger.Info("listening", "address", listener.Addr().String())
+			errc <- server.Serve(connections.Track(listener))
+		}(listener)
+	}
 	for _, tcpServer := range tcpServers {
 		go func(s *appProxy.TCPServer) { errc <- s.ListenAndServe() }(tcpServer)
 	}
@@ -283,4 +298,17 @@ func runServerMode(path string, interactive bool) error {
 	}
 	stopErr := sup.StopAll(ctx)
 	return errors.Join(serveErr, stopErr)
+}
+
+func listenLoopbacks(port int) ([]net.Listener, error) {
+	ipv4, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)))
+	if err != nil {
+		return nil, err
+	}
+	listeners := []net.Listener{ipv4}
+	ipv6, err := net.Listen("tcp6", net.JoinHostPort("::1", fmt.Sprint(port)))
+	if err == nil {
+		listeners = append(listeners, ipv6)
+	}
+	return listeners, nil
 }

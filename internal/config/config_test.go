@@ -145,6 +145,84 @@ func TestNormalizeAssignsDistinctDefaultHosts(t *testing.T) {
 	}
 }
 
+func TestNormalizeNamedEndpointsAndHierarchicalHosts(t *testing.T) {
+	dir := t.TempDir()
+	c := Config{Apps: map[string]AppConfig{
+		"foo": {
+			Pwd: dir, Launch: "server",
+			Endpoints: map[string]EndpointConfig{
+				"web":     {Port: 8080, Primary: true},
+				"metrics": {Port: 9090},
+			},
+		},
+	}}
+
+	got, err := c.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := got.Apps["foo"]
+	if app.Port != 8080 || app.Host != "foo.localhost" {
+		t.Fatalf("primary compatibility fields = %#v", app)
+	}
+	web := app.Endpoints["web"]
+	if web.Host != "foo.localhost" || len(web.Aliases) != 1 || web.Aliases[0] != "web.foo.localhost" || !web.Primary {
+		t.Fatalf("web endpoint = %#v", web)
+	}
+	if metrics := app.Endpoints["metrics"]; metrics.Host != "metrics.foo.localhost" || metrics.Primary {
+		t.Fatalf("metrics endpoint = %#v", metrics)
+	}
+}
+
+func TestNormalizeSingleNamedEndpointBecomesPrimary(t *testing.T) {
+	dir := t.TempDir()
+	got, err := (Config{Apps: map[string]AppConfig{
+		"foo": {Pwd: dir, Launch: "server", Endpoints: map[string]EndpointConfig{"web": {Port: 8080}}},
+	}}).Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if endpoint := got.Apps["foo"].Endpoints["web"]; !endpoint.Primary || endpoint.Host != "foo.localhost" {
+		t.Fatalf("endpoint = %#v", endpoint)
+	}
+}
+
+func TestNormalizeAllowsProcessOnlyApp(t *testing.T) {
+	dir := t.TempDir()
+	got, err := (Config{Apps: map[string]AppConfig{"worker": {Pwd: dir, Launch: "worker"}}}).Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if endpoints := got.Apps["worker"].EndpointList(); len(endpoints) != 0 {
+		t.Fatalf("endpoints = %#v, want none", endpoints)
+	}
+}
+
+func TestNormalizeRejectsInvalidEndpointConfigurations(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name      string
+		endpoints map[string]EndpointConfig
+		legacy    AppConfig
+		want      string
+	}{
+		{name: "missing primary", endpoints: map[string]EndpointConfig{"web": {Port: 8080}, "metrics": {Port: 9090}}, want: "exactly one primary"},
+		{name: "multiple primaries", endpoints: map[string]EndpointConfig{"web": {Port: 8080, Primary: true}, "metrics": {Port: 9090, Primary: true}}, want: "exactly one primary"},
+		{name: "invalid name", endpoints: map[string]EndpointConfig{"bad.name": {Port: 8080, Primary: true}}, want: "valid DNS label"},
+		{name: "legacy conflict", endpoints: map[string]EndpointConfig{"web": {Port: 8080, Primary: true}}, legacy: AppConfig{Port: 3001}, want: "cannot be combined"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := tt.legacy
+			app.Pwd, app.Launch, app.Endpoints = dir, "server", tt.endpoints
+			_, err := (Config{Apps: map[string]AppConfig{"foo": app}}).Normalize()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeTCPRouting(t *testing.T) {
 	dir := t.TempDir()
 	c := Config{Port: 3000, Apps: map[string]AppConfig{
@@ -440,7 +518,7 @@ func TestLoadComposesNestedResourcesRelativeToDeclaringFile(t *testing.T) {
 func TestLoadRejectsDuplicateAppsAcrossResources(t *testing.T) {
 	dir := t.TempDir()
 	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - one.yaml\n  - two.yaml\n")
-	app := "apps:\n  api:\n    pwd: "+fmt.Sprintf("%q", dir)+"\n    launch: api\n    port: 1980\n"
+	app := "apps:\n  api:\n    pwd: " + fmt.Sprintf("%q", dir) + "\n    launch: api\n    port: 1980\n"
 	writeConfigFile(t, filepath.Join(dir, "one.yaml"), app)
 	writeConfigFile(t, filepath.Join(dir, "two.yaml"), app)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,20 +39,31 @@ type Config struct {
 	Apps         map[string]AppConfig `yaml:"apps"`
 }
 type AppConfig struct {
-	EnvFiles     []string          `yaml:"envFiles,omitempty"`
-	Pwd           string            `yaml:"pwd"`
-	Build         string            `yaml:"build"`
-	Launch        string            `yaml:"launch"`
-	Stop          string            `yaml:"stop"`
-	Env           map[string]string `yaml:"env,omitempty"`
-	Protocol      string            `yaml:"protocol"`
-	Path          string            `yaml:"path"`
-	Host          string            `yaml:"host"`
-	ListenPort    int               `yaml:"listenPort"`
-	Port          int               `yaml:"port"`
-	Idle          *Duration         `yaml:"idle"`
-	IncludePrefix bool              `yaml:"includePrefix"`
-	Health        HealthConfig      `yaml:"health"`
+	EnvFiles      []string                  `yaml:"envFiles,omitempty"`
+	Pwd           string                    `yaml:"pwd"`
+	Build         string                    `yaml:"build"`
+	Launch        string                    `yaml:"launch"`
+	Stop          string                    `yaml:"stop"`
+	Env           map[string]string         `yaml:"env,omitempty"`
+	Protocol      string                    `yaml:"protocol"`
+	Path          string                    `yaml:"path"`
+	Host          string                    `yaml:"host"`
+	ListenPort    int                       `yaml:"listenPort"`
+	Port          int                       `yaml:"port"`
+	Idle          *Duration                 `yaml:"idle"`
+	IncludePrefix bool                      `yaml:"includePrefix"`
+	Health        HealthConfig              `yaml:"health"`
+	Endpoints     map[string]EndpointConfig `yaml:"endpoints,omitempty"`
+}
+type EndpointConfig struct {
+	Port          int          `yaml:"port"`
+	Protocol      string       `yaml:"protocol"`
+	Path          string       `yaml:"path"`
+	Host          string       `yaml:"host"`
+	ListenPort    int          `yaml:"listenPort"`
+	IncludePrefix bool         `yaml:"includePrefix"`
+	Health        HealthConfig `yaml:"health"`
+	Primary       bool         `yaml:"primary"`
 }
 type HealthConfig struct {
 	GRPC bool `yaml:"grpc"`
@@ -71,6 +83,35 @@ type RuntimeAppConfig struct {
 	Idle, StartTimeout, StopTimeout                    time.Duration
 	IncludePrefix                                      bool
 	GRPCHealth                                         bool
+	Endpoints                                          map[string]RuntimeEndpointConfig
+}
+type RuntimeEndpointConfig struct {
+	Name, Protocol, Path, Host string
+	Aliases                    []string
+	ListenPort, Port           int
+	IncludePrefix, GRPCHealth  bool
+	Primary                    bool
+}
+
+// EndpointList returns an app's endpoints in stable name order. Runtime
+// configs constructed by older callers are represented as one legacy endpoint.
+func (a RuntimeAppConfig) EndpointList() []RuntimeEndpointConfig {
+	if len(a.Endpoints) == 0 {
+		if a.Port == 0 {
+			return nil
+		}
+		return []RuntimeEndpointConfig{{Name: "default", Protocol: a.Protocol, Path: a.Path, Host: a.Host, ListenPort: a.ListenPort, Port: a.Port, IncludePrefix: a.IncludePrefix, GRPCHealth: a.GRPCHealth, Primary: true}}
+	}
+	names := make([]string, 0, len(a.Endpoints))
+	for name := range a.Endpoints {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]RuntimeEndpointConfig, 0, len(names))
+	for _, name := range names {
+		result = append(result, a.Endpoints[name])
+	}
+	return result
 }
 
 const (
@@ -313,93 +354,18 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if strings.TrimSpace(a.Launch) == "" {
 			return RuntimeConfig{}, fmt.Errorf("app %q: launch is required", id)
 		}
-		if a.Port < 1 || a.Port > 65535 {
-			return RuntimeConfig{}, fmt.Errorf("app %q: invalid port %d", id, a.Port)
+		endpointInputs, err := appEndpointInputs(id, a)
+		if err != nil {
+			return RuntimeConfig{}, err
 		}
-		protocol := strings.ToLower(strings.TrimSpace(a.Protocol))
-		if protocol == "" {
-			protocol = ProtocolHTTP
-		}
-		path, host := strings.TrimSpace(a.Path), strings.TrimSpace(a.Host)
-		switch protocol {
-		case ProtocolHTTP:
-			if a.ListenPort != 0 {
-				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort is only supported with TCP", id)
-			}
-			if path == "" && host == "" {
-				host = id + ".localhost"
-			}
-			if (path == "") == (host == "") {
-				return RuntimeConfig{}, fmt.Errorf("app %q: exactly one of path or host is required", id)
-			}
-			if host != "" {
-				if a.IncludePrefix {
-					return RuntimeConfig{}, fmt.Errorf("app %q: includePrefix is not supported with host routing", id)
-				}
-				var err error
-				host, err = normalizeHost(host)
-				if err != nil {
-					return RuntimeConfig{}, fmt.Errorf("app %q: host: %w", id, err)
-				}
-				if prior, ok := hosts[host]; ok {
-					return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate host %q", prior, id, host)
-				}
-				hosts[host] = id
-			} else {
-				if !strings.HasPrefix(path, "/") {
-					return RuntimeConfig{}, fmt.Errorf("app %q: path must start with /", id)
-				}
-				if path != "/" {
-					path = strings.TrimRight(path, "/")
-				}
-				if prior, ok := paths[path]; ok {
-					return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate path %q", prior, id, path)
-				}
-				paths[path] = id
-			}
-		case ProtocolGRPC:
-			if a.ListenPort != 0 {
-				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort is only supported with TCP", id)
-			}
-			if path != "" || a.IncludePrefix {
-				return RuntimeConfig{}, fmt.Errorf("app %q: path and includePrefix are not supported with gRPC", id)
-			}
-			if host == "" {
-				host = id + ".localhost"
-			}
-			var err error
-			host, err = normalizeHost(host)
+		runtimeEndpoints := make(map[string]RuntimeEndpointConfig, len(endpointInputs))
+		for name, endpoint := range endpointInputs {
+			normalized, err := normalizeEndpoint(id, name, endpoint, len(endpointInputs), c.Port, paths, hosts, ports, listenPorts)
 			if err != nil {
-				return RuntimeConfig{}, fmt.Errorf("app %q: host: %w", id, err)
+				return RuntimeConfig{}, err
 			}
-			if prior, ok := hosts[host]; ok {
-				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate host %q", prior, id, host)
-			}
-			hosts[host] = id
-		case ProtocolTCP:
-			if path != "" || host != "" || a.IncludePrefix {
-				return RuntimeConfig{}, fmt.Errorf("app %q: path, host, and includePrefix are not supported with TCP", id)
-			}
-			if a.ListenPort < 1 || a.ListenPort > 65535 {
-				return RuntimeConfig{}, fmt.Errorf("app %q: invalid listenPort %d", id, a.ListenPort)
-			}
-			if a.ListenPort == c.Port {
-				return RuntimeConfig{}, fmt.Errorf("app %q: listenPort %d conflicts with wrapper port", id, a.ListenPort)
-			}
-			if prior, ok := listenPorts[a.ListenPort]; ok {
-				return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate listenPort %d", prior, id, a.ListenPort)
-			}
-			listenPorts[a.ListenPort] = id
-		default:
-			return RuntimeConfig{}, fmt.Errorf("app %q: invalid protocol %q", id, a.Protocol)
+			runtimeEndpoints[name] = normalized
 		}
-		if a.Health.GRPC && protocol != ProtocolGRPC {
-			return RuntimeConfig{}, fmt.Errorf("app %q: health.grpc is only supported with gRPC", id)
-		}
-		if prior, ok := ports[a.Port]; ok {
-			return RuntimeConfig{}, fmt.Errorf("apps %q and %q use duplicate port %d", prior, id, a.Port)
-		}
-		ports[a.Port] = id
 		if err := validateEnvironment(a.Env); err != nil {
 			return RuntimeConfig{}, fmt.Errorf("app %q: %w", id, err)
 		}
@@ -429,9 +395,202 @@ func (c Config) Normalize() (RuntimeConfig, error) {
 		if idle < 0 {
 			return RuntimeConfig{}, fmt.Errorf("app %q: idle must be non-negative", id)
 		}
-		r.Apps[id] = RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: resolvedEnv, Protocol: protocol, Path: path, Host: host, ListenPort: a.ListenPort, Port: a.Port, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, IncludePrefix: a.IncludePrefix, GRPCHealth: a.Health.GRPC}
+		runtimeApp := RuntimeAppConfig{ID: id, Pwd: a.Pwd, Build: a.Build, Launch: a.Launch, Stop: a.Stop, Env: resolvedEnv, Idle: idle, StartTimeout: r.StartTimeout, StopTimeout: r.StopTimeout, Endpoints: runtimeEndpoints}
+		for _, endpoint := range runtimeEndpoints {
+			if endpoint.Primary {
+				runtimeApp.Protocol, runtimeApp.Path, runtimeApp.Host = endpoint.Protocol, endpoint.Path, endpoint.Host
+				runtimeApp.ListenPort, runtimeApp.Port = endpoint.ListenPort, endpoint.Port
+				runtimeApp.IncludePrefix, runtimeApp.GRPCHealth = endpoint.IncludePrefix, endpoint.GRPCHealth
+				break
+			}
+		}
+		r.Apps[id] = runtimeApp
 	}
 	return r, nil
+}
+
+func appEndpointInputs(id string, app AppConfig) (map[string]EndpointConfig, error) {
+	if len(app.Endpoints) == 0 {
+		if app.Port == 0 {
+			if app.Protocol != "" || app.Path != "" || app.Host != "" || app.ListenPort != 0 || app.IncludePrefix || app.Health.GRPC {
+				return nil, fmt.Errorf("app %q: invalid port 0: routing fields require port or endpoints", id)
+			}
+			return map[string]EndpointConfig{}, nil
+		}
+		return map[string]EndpointConfig{"default": {Port: app.Port, Protocol: app.Protocol, Path: app.Path, Host: app.Host, ListenPort: app.ListenPort, IncludePrefix: app.IncludePrefix, Health: app.Health, Primary: true}}, nil
+	}
+	if app.Port != 0 || app.Protocol != "" || app.Path != "" || app.Host != "" || app.ListenPort != 0 || app.IncludePrefix || app.Health.GRPC {
+		return nil, fmt.Errorf("app %q: legacy routing fields cannot be combined with endpoints", id)
+	}
+	if !validDNSLabel(id) {
+		return nil, fmt.Errorf("app %q: app ID must be a valid DNS label when using endpoints", id)
+	}
+	primary := 0
+	result := make(map[string]EndpointConfig, len(app.Endpoints))
+	for name, endpoint := range app.Endpoints {
+		if !validDNSLabel(name) {
+			return nil, fmt.Errorf("app %q: endpoint %q is not a valid DNS label", id, name)
+		}
+		name = strings.ToLower(name)
+		if _, exists := result[name]; exists {
+			return nil, fmt.Errorf("app %q: duplicate endpoint name %q", id, name)
+		}
+		if endpoint.Primary {
+			primary++
+		}
+		result[name] = endpoint
+	}
+	if len(result) == 1 && primary == 0 {
+		for name, endpoint := range result {
+			endpoint.Primary = true
+			result[name] = endpoint
+		}
+		primary = 1
+	}
+	if primary != 1 {
+		return nil, fmt.Errorf("app %q: endpoints require exactly one primary endpoint", id)
+	}
+	return result, nil
+}
+
+func normalizeEndpoint(appID, name string, endpoint EndpointConfig, count, wrapperPort int, paths, hosts map[string]string, ports, listenPorts map[int]string) (RuntimeEndpointConfig, error) {
+	label := appID
+	if count > 1 || name != "default" {
+		label += "." + name
+	}
+	if endpoint.Port < 1 || endpoint.Port > 65535 {
+		return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: invalid port %d", appID, name, endpoint.Port)
+	}
+	if prior, ok := ports[endpoint.Port]; ok {
+		return RuntimeEndpointConfig{}, fmt.Errorf("endpoints %q and %q use duplicate port %d", prior, label, endpoint.Port)
+	}
+	ports[endpoint.Port] = label
+	protocol := strings.ToLower(strings.TrimSpace(endpoint.Protocol))
+	if protocol == "" {
+		protocol = ProtocolHTTP
+	}
+	path, host := strings.TrimSpace(endpoint.Path), strings.TrimSpace(endpoint.Host)
+	result := RuntimeEndpointConfig{Name: name, Protocol: protocol, Port: endpoint.Port, ListenPort: endpoint.ListenPort, IncludePrefix: endpoint.IncludePrefix, GRPCHealth: endpoint.Health.GRPC, Primary: endpoint.Primary}
+	registerHost := func(value string) error {
+		if prior, ok := hosts[value]; ok {
+			return fmt.Errorf("endpoints %q and %q use duplicate host %q", prior, label, value)
+		}
+		hosts[value] = label
+		return nil
+	}
+	switch protocol {
+	case ProtocolHTTP:
+		if endpoint.ListenPort != 0 {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: listenPort is only supported with TCP", appID, name)
+		}
+		generatedHost := path == "" && host == ""
+		if generatedHost {
+			if endpoint.Primary {
+				host = appID + ".localhost"
+				alias := name + "." + appID + ".localhost"
+				if alias != host {
+					result.Aliases = []string{alias}
+				}
+			} else {
+				host = name + "." + appID + ".localhost"
+			}
+		}
+		if (path == "") == (host == "") {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: exactly one of path or host is required", appID, name)
+		}
+		if host != "" {
+			if endpoint.IncludePrefix {
+				return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: includePrefix is not supported with host routing", appID, name)
+			}
+			var err error
+			host, err = normalizeHost(host)
+			if err != nil {
+				return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: host: %w", appID, name, err)
+			}
+			if err := registerHost(host); err != nil {
+				return RuntimeEndpointConfig{}, err
+			}
+			for _, alias := range result.Aliases {
+				if err := registerHost(alias); err != nil {
+					return RuntimeEndpointConfig{}, err
+				}
+			}
+		} else {
+			if !strings.HasPrefix(path, "/") {
+				return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: path must start with /", appID, name)
+			}
+			if path != "/" {
+				path = strings.TrimRight(path, "/")
+			}
+			if prior, ok := paths[path]; ok {
+				return RuntimeEndpointConfig{}, fmt.Errorf("endpoints %q and %q use duplicate path %q", prior, label, path)
+			}
+			paths[path] = label
+		}
+	case ProtocolGRPC:
+		if endpoint.ListenPort != 0 {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: listenPort is only supported with TCP", appID, name)
+		}
+		if path != "" || endpoint.IncludePrefix {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: path and includePrefix are not supported with gRPC", appID, name)
+		}
+		if host == "" {
+			if endpoint.Primary {
+				host = appID + ".localhost"
+				result.Aliases = []string{name + "." + appID + ".localhost"}
+			} else {
+				host = name + "." + appID + ".localhost"
+			}
+		}
+		var err error
+		host, err = normalizeHost(host)
+		if err != nil {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: host: %w", appID, name, err)
+		}
+		if err := registerHost(host); err != nil {
+			return RuntimeEndpointConfig{}, err
+		}
+		for _, alias := range result.Aliases {
+			if alias != host {
+				if err := registerHost(alias); err != nil {
+					return RuntimeEndpointConfig{}, err
+				}
+			}
+		}
+	case ProtocolTCP:
+		if path != "" || host != "" || endpoint.IncludePrefix {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: path, host, and includePrefix are not supported with TCP", appID, name)
+		}
+		if endpoint.ListenPort < 1 || endpoint.ListenPort > 65535 {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: invalid listenPort %d", appID, name, endpoint.ListenPort)
+		}
+		if endpoint.ListenPort == wrapperPort {
+			return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: listenPort %d conflicts with wrapper port", appID, name, endpoint.ListenPort)
+		}
+		if prior, ok := listenPorts[endpoint.ListenPort]; ok {
+			return RuntimeEndpointConfig{}, fmt.Errorf("endpoints %q and %q use duplicate listenPort %d", prior, label, endpoint.ListenPort)
+		}
+		listenPorts[endpoint.ListenPort] = label
+	default:
+		return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: invalid protocol %q", appID, name, endpoint.Protocol)
+	}
+	if endpoint.Health.GRPC && protocol != ProtocolGRPC {
+		return RuntimeEndpointConfig{}, fmt.Errorf("app %q endpoint %q: health.grpc is only supported with gRPC", appID, name)
+	}
+	result.Path, result.Host = path, host
+	return result, nil
+}
+
+func validDNSLabel(value string) bool {
+	if value == "" || len(value) > 63 || value[0] == '-' || value[len(value)-1] == '-' {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func cloneStringMap(values map[string]string) map[string]string {

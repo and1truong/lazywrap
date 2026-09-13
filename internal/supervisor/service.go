@@ -164,18 +164,34 @@ func (s *Service) start(attemptCtx context.Context, attempt, workerDone chan str
 	close(attempt)
 	s.scheduleIdleLocked()
 	s.mu.Unlock()
-	s.logger.Info("ready", "port", s.cfg.Port)
+	s.logger.Info("ready", "endpoints", len(s.cfg.EndpointList()))
 	if s.cfg.Stop == "" {
 		go s.watch(p)
 	}
 }
 func (s *Service) ready(ctx context.Context, p *proc.Process) error {
-	if s.cfg.GRPCHealth {
-		return s.grpcReady(ctx, p)
+	endpoints := s.cfg.EndpointList()
+	if len(endpoints) == 0 {
+		return nil
 	}
+	for _, endpoint := range endpoints {
+		if endpoint.GRPCHealth {
+			if err := s.grpcReady(ctx, p, endpoint); err != nil {
+				return fmt.Errorf("endpoint %q: %w", endpoint.Name, err)
+			}
+			continue
+		}
+		if err := s.tcpReady(ctx, p, endpoint); err != nil {
+			return fmt.Errorf("endpoint %q: %w", endpoint.Name, err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) tcpReady(ctx context.Context, p *proc.Process, endpoint config.RuntimeEndpointConfig) error {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
-	addr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Port)
+	addr := fmt.Sprintf("127.0.0.1:%d", endpoint.Port)
 	done := p.Done
 	for {
 		c, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
@@ -203,8 +219,8 @@ func (s *Service) ready(ctx context.Context, p *proc.Process) error {
 	}
 }
 
-func (s *Service) grpcReady(ctx context.Context, p *proc.Process) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Port)
+func (s *Service) grpcReady(ctx context.Context, p *proc.Process, endpoint config.RuntimeEndpointConfig) error {
+	addr := fmt.Sprintf("127.0.0.1:%d", endpoint.Port)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("create gRPC health client: %w", err)

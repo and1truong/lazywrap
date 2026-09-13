@@ -215,6 +215,52 @@ supports local YAML files, not URLs, globs, directories, inheritance, or patches
 | `idle`          | Overrides the global idle timeout; `0` disables idle shutdown  |
 | `includePrefix` | Whether the configured path prefix is preserved; path routing only |
 | `health.grpc`   | For gRPC, wait for the standard health service to report `SERVING` |
+| `endpoints`     | Named ports exposed by one application; cannot be combined with legacy routing fields |
+
+Applications that only need process supervision may omit both `port` and
+`endpoints`. They can be started and stopped from the TUI but do not receive a
+proxy route.
+
+### Multiple endpoints
+
+Use named endpoints when one process exposes more than one port:
+
+```yaml
+apps:
+  foo:
+    pwd: ~/code/foo
+    launch: ./foo
+    endpoints:
+      web:
+        port: 8080
+        protocol: http
+        primary: true
+      metrics:
+        port: 9090
+        protocol: http
+```
+
+The primary endpoint receives both the short application host and its named
+alias. Other endpoints use hierarchical lazy hosts:
+
+| Endpoint | Lazy host |
+| --- | --- |
+| Primary `web` | `foo.localhost` and `web.foo.localhost` |
+| `metrics` | `metrics.foo.localhost` |
+
+A single named endpoint becomes primary automatically. Two or more endpoints
+must mark exactly one endpoint with `primary: true`. Endpoint names are
+case-insensitive DNS labels. Every endpoint must declare a unique backend
+`port`; TCP endpoints must also declare a unique public `listenPort`.
+
+HTTP, gRPC, and TCP endpoint objects accept the same routing, health, and
+protocol fields as the legacy single-port form. Requests and connections across
+all endpoints share one application lifecycle: the first request starts the
+process once, and activity on any endpoint prevents idle shutdown. Startup is
+complete after every configured endpoint passes readiness.
+
+Existing single-port configurations remain supported and behave as an implicit
+primary endpoint named `default`.
 
 ## Environment files and interpolation
 
@@ -327,6 +373,11 @@ apps:
 With wrapper port `3000`, `http://docs.localhost:3000/guide?q=1` is proxied to `http://127.0.0.1:1988/guide?q=1`. The path and query string are unchanged. Host matching is case-insensitive and ignores the wrapper port; it does not perform wildcard or suffix matching. `includePrefix` is not valid for host-routed services.
 
 Backends receive `Host: 127.0.0.1:<service-port>` so they identify the local target consistently; the incoming hostname is retained in `X-Forwarded-Host`.
+
+Lazywrap listens on IPv4 loopback and, when available, IPv6 loopback. Nested
+`.localhost` names such as `metrics.foo.localhost` therefore require no hosts
+file entries on platforms and clients implementing the reserved `.localhost`
+namespace, including current macOS browsers.
 
 ## gRPC proxying
 

@@ -36,13 +36,21 @@ type TCPServer struct {
 }
 
 func NewTCPServer(app config.RuntimeAppConfig, sup *supervisor.Supervisor, logger *slog.Logger) *TCPServer {
+	endpoints := app.EndpointList()
+	if len(endpoints) == 0 {
+		panic("TCP server requires an endpoint")
+	}
+	return NewTCPEndpointServer(app.ID, endpoints[0], sup, logger)
+}
+
+func NewTCPEndpointServer(serviceID string, endpoint config.RuntimeEndpointConfig, sup *supervisor.Supervisor, logger *slog.Logger) *TCPServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TCPServer{
-		serviceID: app.ID,
-		addr:      net.JoinHostPort("127.0.0.1", strconv.Itoa(app.ListenPort)),
-		target:    net.JoinHostPort("127.0.0.1", strconv.Itoa(app.Port)),
+		serviceID: serviceID,
+		addr:      net.JoinHostPort("127.0.0.1", strconv.Itoa(endpoint.ListenPort)),
+		target:    net.JoinHostPort("127.0.0.1", strconv.Itoa(endpoint.Port)),
 		sup:       sup,
-		logger:    logger.With("service", app.ID, "protocol", "tcp"),
+		logger:    logger.With("service", serviceID, "endpoint", endpoint.Name, "protocol", "tcp"),
 		ctx:       ctx,
 		cancel:    cancel,
 		conns:     make(map[net.Conn]struct{}),
