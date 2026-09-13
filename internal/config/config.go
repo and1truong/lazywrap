@@ -120,7 +120,7 @@ func LoadStrict(path string) (RuntimeConfig, error) {
 }
 
 func load(path string, strict bool) (RuntimeConfig, error) {
-	root, err := canonicalPath(path)
+	root, err := CanonicalPath(path)
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
@@ -174,7 +174,9 @@ var globalFields = map[string]struct{}{
 	"stopTimeout": {}, "startUp": {}, "tearDown": {},
 }
 
-func canonicalPath(path string) (string, error) {
+// CanonicalPath expands a leading home directory marker and resolves the path
+// to the same canonical form used for configuration source tracking.
+func CanonicalPath(path string) (string, error) {
 	expanded, err := expandHomePath(path)
 	if err != nil {
 		return "", err
@@ -203,7 +205,7 @@ func (l *resourceLoader) loadAll(resources []string, declaringFile string, stack
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(filepath.Dir(declaringFile), path)
 		}
-		canonical, err := canonicalPath(path)
+		canonical, err := CanonicalPath(path)
 		if err != nil {
 			return fmt.Errorf("load resource %q declared in %s: %w", resource, declaringFile, err)
 		}
