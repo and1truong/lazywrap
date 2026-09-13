@@ -76,6 +76,16 @@ The release workflow runs the test suite and `go vet`, then GoReleaser publishes
 
 ## Usage
 
+Show available commands, options, and examples:
+
+```bash
+lazywrap help
+lazywrap help doctor
+```
+
+`-h` and `--help` are also supported, including `lazywrap doctor --help`.
+
+
 ```bash
 lazywrap -c /path/to/config.yaml
 ```

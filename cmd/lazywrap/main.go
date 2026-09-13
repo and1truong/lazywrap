@@ -36,6 +36,16 @@ func run() error {
 }
 
 func runArgs(args []string, output io.Writer) error {
+	if len(args) > 0 && args[0] == "help" {
+		switch {
+		case len(args) == 1:
+			args = []string{"-h"}
+		case len(args) == 2 && args[1] == "doctor":
+			args = []string{"doctor", "-h"}
+		default:
+			return fmt.Errorf("help: unknown topic or unexpected arguments: %v (use lazywrap help)", args[1:])
+		}
+	}
 	def, e := config.DefaultPath()
 	if e != nil {
 		return e
@@ -48,9 +58,18 @@ func runArgs(args []string, output io.Writer) error {
 	flags.SetOutput(output)
 	path := flags.String("c", def, "configuration file")
 	flags.Usage = func() {
-		fmt.Fprintln(output, "Usage: lazywrap [-c FILE]")
+		fmt.Fprintln(output, "Lazy-start HTTP/gRPC/TCP proxy and local process supervisor.")
+		fmt.Fprintln(output, "\nUsage: lazywrap [-c FILE]")
 		fmt.Fprintln(output, "       lazywrap doctor [-c FILE]")
+		fmt.Fprintln(output, "       lazywrap help [doctor]")
+		fmt.Fprintln(output, "\nCommands:")
+		fmt.Fprintln(output, "  doctor  Validate configuration without running hooks or app commands")
+		fmt.Fprintln(output, "  help    Show general help or help for a command")
+		fmt.Fprintln(output, "\nWithout a command, start the proxy and supervise configured services.")
+		fmt.Fprintln(output, "\nOptions:")
 		flags.PrintDefaults()
+		fmt.Fprintln(output, "  -h, --help\n        show help")
+		fmt.Fprintln(output, "\nExamples:\n  lazywrap -c ./config.yaml\n  lazywrap doctor -c ./config.yaml\n  lazywrap help doctor")
 	}
 	if e := flags.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
@@ -72,8 +91,12 @@ func runDoctorArgs(defaultPath string, args []string, output io.Writer) error {
 	flags.SetOutput(output)
 	path := flags.String("c", defaultPath, "configuration file")
 	flags.Usage = func() {
-		fmt.Fprintln(output, "Usage: lazywrap doctor [-c FILE]")
+		fmt.Fprintln(output, "Validate configuration and list resolved apps without running hooks or app commands.")
+		fmt.Fprintln(output, "\nUsage: lazywrap doctor [-c FILE]")
+		fmt.Fprintln(output, "\nOptions:")
 		flags.PrintDefaults()
+		fmt.Fprintln(output, "  -h, --help\n        show help")
+		fmt.Fprintln(output, "\nExample:\n  lazywrap doctor -c ./config.yaml")
 	}
 	if e := flags.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
