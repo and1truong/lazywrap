@@ -14,7 +14,10 @@ permissions:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -27,6 +30,14 @@ jobs:
 
       - name: Run tests
         run: go test -race ./...
+
+      - name: TUI PTY smoke
+        run: |
+          go build -o lazywrap-test ./cmd/lazywrap
+          python3 scripts/tui_smoke.py
+
+      - name: Go formatting diff
+        run: gofmt -d cmd/lazywrap/main.go cmd/lazywrap/help_test.go internal/supervisor/service.go internal/supervisor/inspection*.go internal/process/tracker*.go internal/observe internal/tui
 
       - name: Run vet
         run: go vet ./...

@@ -34,6 +34,11 @@ type Service struct {
 	stopDone       chan struct{}
 	stopErr        error
 	generation     uint64
+	startCancel    context.CancelFunc
+	workerDone     chan struct{}
+	startedAt      time.Time
+	starts         int
+	manualStopped  bool
 }
 
 func newService(ctx context.Context, c config.RuntimeAppConfig, r proc.ProcessRunner, l *slog.Logger) *Service {
@@ -47,6 +52,10 @@ func (s *Service) commandSpec(command, kind string) proc.CommandSpec {
 func (s *Service) Acquire(ctx context.Context) (func(), error) {
 	for {
 		s.mu.Lock()
+		if s.lifecycle.Err() != nil || s.manualStopped {
+			s.mu.Unlock()
+			return nil, ErrClosing
+		}
 		switch s.state {
 		case StateRunning:
 			s.generation++
@@ -63,7 +72,10 @@ func (s *Service) Acquire(ctx context.Context) (func(), error) {
 			s.startDone = make(chan struct{})
 			s.startErr = nil
 			ch := s.startDone
-			go s.start(ch)
+			attemptCtx, cancel := context.WithCancel(s.lifecycle)
+			s.startCancel = cancel
+			s.workerDone = make(chan struct{})
+			go s.start(attemptCtx, ch, s.workerDone)
 			s.mu.Unlock()
 			if e := wait(ctx, ch); e != nil {
 				return nil, e
@@ -98,8 +110,9 @@ func wait(ctx context.Context, ch <-chan struct{}) error {
 		return nil
 	}
 }
-func (s *Service) start(attempt chan struct{}) {
-	ctx, cancel := context.WithTimeout(s.lifecycle, s.cfg.StartTimeout)
+func (s *Service) start(attemptCtx context.Context, attempt, workerDone chan struct{}) {
+	defer close(workerDone)
+	ctx, cancel := context.WithTimeout(attemptCtx, s.cfg.StartTimeout)
 	defer cancel()
 	if s.cfg.Build != "" {
 		s.logger.Info("building")
@@ -117,7 +130,7 @@ func (s *Service) start(attempt chan struct{}) {
 	s.mu.Unlock()
 	s.logger.Info("starting")
 	// The process uses the service lifecycle; only readiness is bounded by startTimeout.
-	p, e := s.runner.Start(s.lifecycle, s.commandSpec(s.cfg.Launch, "launch"))
+	p, e := s.runner.Start(attemptCtx, s.commandSpec(s.cfg.Launch, "launch"))
 	if e != nil {
 		s.fail(attempt, fmt.Errorf("launch failed: %w", e))
 		return
@@ -145,6 +158,8 @@ func (s *Service) start(attempt chan struct{}) {
 		return
 	}
 	s.state = StateRunning
+	s.startedAt = time.Now()
+	s.starts++
 	s.startErr = nil
 	close(attempt)
 	s.scheduleIdleLocked()
@@ -305,6 +320,9 @@ func (s *Service) beginStopLocked() {
 	s.state = StateStopping
 	s.stopDone = make(chan struct{})
 	s.stopErr = nil
+	// Cancel build/readiness before stop waits for its worker. Running services
+	// still use the graceful termination path below.
+	if wasStarting && s.startCancel != nil { s.startCancel() }
 	if wasStarting && s.startDone != nil {
 		s.startErr = ErrClosing
 		close(s.startDone)
@@ -341,6 +359,10 @@ func (s *Service) waitForStop(ctx context.Context, done <-chan struct{}) error {
 func (s *Service) stop() {
 	s.logger.Info("stopping")
 	s.mu.Lock()
+	workerDone := s.workerDone
+	s.mu.Unlock()
+	if workerDone != nil { <-workerDone }
+	s.mu.Lock()
 	p := s.process
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.StopTimeout)
@@ -367,10 +389,12 @@ func (s *Service) stop() {
 	s.mu.Lock()
 	s.process = nil
 	s.state = StateStopped
+	if s.startCancel != nil { s.startCancel(); s.startCancel = nil }
 	s.stopErr = e
 	close(s.stopDone)
 	s.mu.Unlock()
 	if e != nil {
 		s.logger.Warn("stop command failed", "err", e)
 	}
+	s.logger.Info("stopped")
 }

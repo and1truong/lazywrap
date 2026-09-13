@@ -524,3 +524,56 @@ The initial goal is intentionally small:
 ## License
 
 MIT
+
+
+## Interactive TUI
+
+```sh
+lazywrap                    # normal proxy/supervisor, plain log output
+lazywrap tui                # opt-in interactive supervisor
+lazywrap tui -c ./config.yaml
+lazywrap help tui
+```
+
+Both modes run the same proxy and supervisor. Apps remain lazy until traffic or
+an explicit Start. TUI requires an interactive stdin/stdout on Linux or macOS;
+redirected input/output is rejected before hooks or listeners start. It starts
+its own supervisor; it does not attach to an existing Lazywrap instance.
+
+The left pane lists managed apps. The right pane shows overview/process tree
+above logs or lifecycle events. Small terminals show a resize hint.
+
+| Key | Action |
+| --- | --- |
+| Arrows / Tab | Select or scroll / change focused pane |
+| `1`, `2`, `3` | Maximize apps, processes, or logs; repeat to restore split |
+| `p`, Enter | Focus process tree / expand or collapse tree |
+| `l`, `e` | Show app output or lifecycle events |
+| `/`, Enter | Filter apps or focused logs/events / apply |
+| PgUp, PgDn, `g` | Scroll output / resume tail |
+| `S`, `x`, `r` | Start, stop, restart selected app |
+| `k` | Force kill with confirmation pinned to selected app |
+| `?` | Help |
+| `q`, Ctrl-C | Confirm quit / immediate quit; both shut down managed apps |
+
+Manual Stop blocks new lazy starts until Start/Restart. Existing requests may be
+interrupted by manual actions. Start respects the app's configured idle timeout;
+opening TUI does not keep apps awake. Force kill is unavailable for apps with a
+custom `stop` command because the launcher may not own the external workload.
+
+CPU/RSS sampling runs roughly once per second using OS `ps`, outside rendering.
+CPU uses deltas in cumulative process CPU time: 100% equals one CPU core, so
+multi-core workloads can exceed 100%. Initial samples establish a baseline;
+`ps` time precision may make short bursts appear coarse. Each process baseline
+is keyed by PID and OS start time. RSS is summed across owned processes and may
+double-count shared pages; VMS is available in process details. The latest 120
+CPU/RSS samples are kept per app. Logs and events are separate in-memory buffers,
+each capped at 500 entries per app and 4 KiB per entry. Nothing is persisted.
+
+Ownership uses the process group established at launch, including reparented
+members. A live launch-group leader is required to anchor each snapshot.
+Processes that create new sessions/groups, containers, and external daemons
+cannot be inferred reliably; their metrics are unavailable rather than reported
+as zero. The process tree preserves PID/start-time selection across refreshes;
+large trees initially collapse. Collection failures leave lifecycle controls
+available. Terminal control characters in app names/log output are sanitized.
