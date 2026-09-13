@@ -59,11 +59,12 @@ func (s *Store) Entries(service string, events bool) []Entry {
 
 type Handler struct {
 	Store *Store
+	Level slog.Level
 	attrs []slog.Attr
 	group string
 }
 
-func (h *Handler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *Handler) Enabled(_ context.Context, level slog.Level) bool { return level >= h.Level }
 func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	e := Entry{At: r.Time, Text: r.Message}
 	attrs := append([]slog.Attr(nil), h.attrs...)

@@ -199,7 +199,7 @@ func runServerMode(path string, interactive bool) error {
 	var observations *observe.Store
 	if interactive {
 		observations = observe.New()
-		logger = slog.New(&observe.Handler{Store: observations})
+		logger = slog.New(&observe.Handler{Store: observations, Level: level})
 	}
 	runner := proc.NewRunner(logger)
 	hooks := lifecycle.New(cfg.StartUp, cfg.TearDown, runner, logger)

@@ -1,11 +1,51 @@
 package observe
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
 )
+
+func TestConfiguredLevelFiltersLogsAndEvents(t *testing.T) {
+	for _, minimum := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError} {
+		t.Run(minimum.String(), func(t *testing.T) {
+			s := New()
+			logger := slog.New(&Handler{Store: s, Level: minimum}).With("service", "api").WithGroup("lifecycle")
+			want := 0
+			for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError} {
+				logger.Log(context.Background(), level, level.String())
+				logger.Log(context.Background(), level, level.String(), "stream", "stdout")
+				if level >= minimum {
+					want++
+				}
+			}
+			for _, events := range []bool{false, true} {
+				if entries := s.Entries("api", events); len(entries) != want {
+					t.Fatalf("events=%v: got %d entries, want %d", events, len(entries), want)
+				}
+			}
+		})
+	}
+}
+
+func TestFilteredRecordsCannotEvictWarnings(t *testing.T) {
+	s := New()
+	logger := slog.New(&Handler{Store: s, Level: slog.LevelWarn}).With("service", "api")
+	logger.Warn("retain event")
+	logger.Warn("retain stderr", "stream", "stderr")
+	for i := 0; i <= Capacity; i++ {
+		logger.Debug("debug event")
+		logger.Info("info event")
+		logger.Info("stdout", "stream", "stdout")
+	}
+	for _, events := range []bool{false, true} {
+		if entries := s.Entries("api", events); len(entries) != 1 {
+			t.Fatalf("events=%v: warning displaced by filtered records: %+v", events, entries)
+		}
+	}
+}
 
 func TestBoundedSeparateConcurrentStreams(t *testing.T) {
 	s := New()
