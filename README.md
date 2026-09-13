@@ -1,5 +1,7 @@
 # lazywrap
 
+![](assets/hero.png)
+
 Lazy-start HTTP/gRPC/TCP proxy and local process supervisor for development services.
 
 `lazywrap` keeps local services stopped until they are needed. The first request to a configured route starts the target service, waits for it to become ready, proxies the request, and shuts the service down again after it has been idle for a configured period.
