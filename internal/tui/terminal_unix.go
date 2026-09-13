@@ -11,10 +11,10 @@ import (
 
 func CheckTerminal() error {
 	if _, err := unix.IoctlGetTermios(int(os.Stdin.Fd()), getTermios); err != nil {
-		return fmt.Errorf("lazywrap tui requires an interactive terminal (stdin): %w", err)
+		return fmt.Errorf("heron tui requires an interactive terminal (stdin): %w", err)
 	}
 	if _, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ); err != nil {
-		return fmt.Errorf("lazywrap tui requires an interactive terminal (stdout): %w", err)
+		return fmt.Errorf("heron tui requires an interactive terminal (stdout): %w", err)
 	}
 	return nil
 }

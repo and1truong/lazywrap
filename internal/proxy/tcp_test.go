@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"lazywrap/internal/config"
-	"lazywrap/internal/supervisor"
+	"github.com/and1truong/heron/internal/config"
+	"github.com/and1truong/heron/internal/supervisor"
 )
 
 func TestTCPProxyLifecycle(t *testing.T) {

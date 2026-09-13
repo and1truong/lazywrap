@@ -3,9 +3,9 @@ package proxy
 import (
 	"context"
 	"io"
-	"lazywrap/internal/config"
-	proc "lazywrap/internal/process"
-	"lazywrap/internal/supervisor"
+	"github.com/and1truong/heron/internal/config"
+	proc "github.com/and1truong/heron/internal/process"
+	"github.com/and1truong/heron/internal/supervisor"
 	"log/slog"
 	"net"
 	"net/http"

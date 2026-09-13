@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"sync"
 
-	"lazywrap/internal/config"
-	"lazywrap/internal/supervisor"
+	"github.com/and1truong/heron/internal/config"
+	"github.com/and1truong/heron/internal/supervisor"
 )
 
 var ErrTCPServerClosed = errors.New("TCP proxy server closed")

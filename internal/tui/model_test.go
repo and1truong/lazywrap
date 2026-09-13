@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"lazywrap/internal/observe"
-	"lazywrap/internal/supervisor"
+	"github.com/and1truong/heron/internal/observe"
+	"github.com/and1truong/heron/internal/supervisor"
 	"log/slog"
 	"strings"
 	"testing"

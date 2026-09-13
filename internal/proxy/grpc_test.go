@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"lazywrap/internal/config"
-	"lazywrap/internal/supervisor"
+	"github.com/and1truong/heron/internal/config"
+	"github.com/and1truong/heron/internal/supervisor"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-const grpcTestServiceName = "lazywrap.test.Echo"
+const grpcTestServiceName = "heron.test.Echo"
 
 type grpcTestService struct {
 	unaryCalls atomic.Int32

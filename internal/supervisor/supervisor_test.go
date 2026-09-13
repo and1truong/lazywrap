@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"lazywrap/internal/config"
-	proc "lazywrap/internal/process"
+	"github.com/and1truong/heron/internal/config"
+	proc "github.com/and1truong/heron/internal/process"
 )
 
 type stopAllRunner struct {

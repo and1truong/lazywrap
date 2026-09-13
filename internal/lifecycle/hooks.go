@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	proc "lazywrap/internal/process"
+	proc "github.com/and1truong/heron/internal/process"
 	"log/slog"
 	"sync"
 )
@@ -64,7 +64,7 @@ func (h *Hooks) TearDown(ctx context.Context) error {
 }
 
 func commandSpec(command, kind string) proc.CommandSpec {
-	return proc.CommandSpec{Command: command, Service: "lazywrap", Kind: kind}
+	return proc.CommandSpec{Command: command, Service: "heron", Kind: kind}
 }
 
 func commandError(kind string, index int, command string, err error) error {

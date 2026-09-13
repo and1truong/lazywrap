@@ -46,7 +46,7 @@ func TestNormalizeCopiesLifecycleHooks(t *testing.T) {
 
 func TestLoadLifecycleHooks(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "lazywrap.yaml")
+	path := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf("startUp:\n  - prepare one\n  - prepare two\ntearDown:\n  - cleanup\napps:\n  api:\n    pwd: %q\n    launch: server\n    port: 1980\n", dir)
 	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -64,12 +64,12 @@ func TestLoadLifecycleHooks(t *testing.T) {
 	}
 }
 
-func TestDefaultPathUsesLazywrapName(t *testing.T) {
+func TestDefaultPathUsesHeronName(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(path) != "lazywrap.yaml" {
+	if filepath.Base(path) != "heron.yaml" {
 		t.Fatalf("default config path = %q", path)
 	}
 }
@@ -401,7 +401,7 @@ func TestNormalizeZeroAppIdleDisablesShutdown(t *testing.T) {
 
 func TestLoadAcceptsZeroAppIdle(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "lazywrap.yaml")
+	path := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf("apps:\n  kafka:\n    pwd: %q\n    launch: kafka\n    protocol: tcp\n    listenPort: 19092\n    port: 9092\n    idle: 0\n", dir)
 	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -417,7 +417,7 @@ func TestLoadAcceptsZeroAppIdle(t *testing.T) {
 
 func TestLoadAcceptsLiteralPerAppEnvironment(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "lazywrap.yaml")
+	path := filepath.Join(dir, "heron.yaml")
 	contents := fmt.Sprintf("apps:\n  api:\n    pwd: %q\n    launch: server\n    port: 1980\n    env:\n      APP_ENV: development\n      EMPTY: \"\"\n      LITERAL: ${HOME}\n", dir)
 	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -546,11 +546,11 @@ func TestLoadComposesNestedResourcesRelativeToDeclaringFile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(appsDir, "nested"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - apps/backend.yaml\n")
+	writeConfigFile(t, filepath.Join(dir, "heron.yaml"), "resources:\n  - apps/backend.yaml\n")
 	writeConfigFile(t, filepath.Join(appsDir, "backend.yaml"), "resources:\n  - nested/worker.yaml\napps:\n  api:\n    pwd: "+fmt.Sprintf("%q", dir)+"\n    launch: api\n    port: 1980\n")
 	writeConfigFile(t, filepath.Join(appsDir, "nested", "worker.yaml"), "apps:\n  worker:\n    pwd: "+fmt.Sprintf("%q", dir)+"\n    launch: worker\n    port: 1981\n")
 
-	cfg, err := Load(filepath.Join(dir, "lazywrap.yaml"))
+	cfg, err := Load(filepath.Join(dir, "heron.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,12 +564,12 @@ func TestLoadComposesNestedResourcesRelativeToDeclaringFile(t *testing.T) {
 
 func TestLoadRejectsDuplicateAppsAcrossResources(t *testing.T) {
 	dir := t.TempDir()
-	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - one.yaml\n  - two.yaml\n")
+	writeConfigFile(t, filepath.Join(dir, "heron.yaml"), "resources:\n  - one.yaml\n  - two.yaml\n")
 	app := "apps:\n  api:\n    pwd: " + fmt.Sprintf("%q", dir) + "\n    launch: api\n    port: 1980\n"
 	writeConfigFile(t, filepath.Join(dir, "one.yaml"), app)
 	writeConfigFile(t, filepath.Join(dir, "two.yaml"), app)
 
-	_, err := Load(filepath.Join(dir, "lazywrap.yaml"))
+	_, err := Load(filepath.Join(dir, "heron.yaml"))
 	if err == nil || !strings.Contains(err.Error(), `duplicate app "api"`) || !strings.Contains(err.Error(), "one.yaml") || !strings.Contains(err.Error(), "two.yaml") {
 		t.Fatalf("error = %v", err)
 	}
@@ -577,10 +577,10 @@ func TestLoadRejectsDuplicateAppsAcrossResources(t *testing.T) {
 
 func TestLoadRejectsCircularResourcesWithChain(t *testing.T) {
 	dir := t.TempDir()
-	root := filepath.Join(dir, "lazywrap.yaml")
+	root := filepath.Join(dir, "heron.yaml")
 	one := filepath.Join(dir, "one.yaml")
 	writeConfigFile(t, root, "resources:\n  - one.yaml\n")
-	writeConfigFile(t, one, "resources:\n  - lazywrap.yaml\n")
+	writeConfigFile(t, one, "resources:\n  - heron.yaml\n")
 
 	_, err := Load(root)
 	canonicalRoot := canonicalTestPath(t, root)
@@ -592,10 +592,10 @@ func TestLoadRejectsCircularResourcesWithChain(t *testing.T) {
 
 func TestLoadRejectsGlobalFieldsInResource(t *testing.T) {
 	dir := t.TempDir()
-	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - apps.yaml\n")
+	writeConfigFile(t, filepath.Join(dir, "heron.yaml"), "resources:\n  - apps.yaml\n")
 	writeConfigFile(t, filepath.Join(dir, "apps.yaml"), "port: 4000\napps: {}\n")
 
-	_, err := Load(filepath.Join(dir, "lazywrap.yaml"))
+	_, err := Load(filepath.Join(dir, "heron.yaml"))
 	if err == nil || !strings.Contains(err.Error(), `resource cannot set global field "port"`) {
 		t.Fatalf("error = %v", err)
 	}
@@ -603,10 +603,10 @@ func TestLoadRejectsGlobalFieldsInResource(t *testing.T) {
 
 func TestLoadStrictRejectsUnknownResourceField(t *testing.T) {
 	dir := t.TempDir()
-	writeConfigFile(t, filepath.Join(dir, "lazywrap.yaml"), "resources:\n  - apps.yaml\n")
+	writeConfigFile(t, filepath.Join(dir, "heron.yaml"), "resources:\n  - apps.yaml\n")
 	writeConfigFile(t, filepath.Join(dir, "apps.yaml"), "appps: {}\n")
 
-	_, err := LoadStrict(filepath.Join(dir, "lazywrap.yaml"))
+	_, err := LoadStrict(filepath.Join(dir, "heron.yaml"))
 	if err == nil || !strings.Contains(err.Error(), `unknown field "appps"`) {
 		t.Fatalf("error = %v", err)
 	}
@@ -614,7 +614,7 @@ func TestLoadStrictRejectsUnknownResourceField(t *testing.T) {
 
 func TestLoadReportsMissingResourceWithDeclaringFile(t *testing.T) {
 	dir := t.TempDir()
-	root := filepath.Join(dir, "lazywrap.yaml")
+	root := filepath.Join(dir, "heron.yaml")
 	writeConfigFile(t, root, "resources:\n  - missing.yaml\n")
 
 	_, err := Load(root)

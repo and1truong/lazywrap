@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode"
 
-	"lazywrap/internal/observe"
-	"lazywrap/internal/process"
-	"lazywrap/internal/supervisor"
+	"github.com/and1truong/heron/internal/observe"
+	"github.com/and1truong/heron/internal/process"
+	"github.com/and1truong/heron/internal/supervisor"
 )
 
 type sample struct {
@@ -393,7 +393,7 @@ func (m *model) view(w, h int, store *observe.Store) string {
 	w = max(1, w)
 	h = max(1, h)
 	focus := map[int]string{0: "apps", 1: "apps", 2: "processes", 3: "logs/events"}[m.focus]
-	lines := []string{fmt.Sprintf(" LAZYWRAP  %d apps | focus: %s | q quit | ? help", len(m.apps), focus)}
+	lines := []string{fmt.Sprintf(" HERON  %d apps | focus: %s | q quit | ? help", len(m.apps), focus)}
 	if w < 60 || h < 12 {
 		lines = append(lines, " Terminal too small; resize to at least 60 x 12.")
 	} else {
@@ -430,7 +430,7 @@ func (m *model) view(w, h int, store *observe.Store) string {
 	}
 	lines = append(lines, status, " Arrows select/scroll | S start x stop r restart k kill | 1/2/3 maximize")
 	if m.help {
-		lines = []string{" LAZYWRAP HELP (? close)", " Arrows: select app/process or scroll logs; Tab: focus pane", " 1/2/3: maximize apps/processes/logs; same key restores split", " p: process tree; Enter: expand/collapse all; arrows: PID details", " l: logs; e: lifecycle events; /: filter focused apps or logs", " PgUp/PgDn: scroll logs; g: resume tail", " S: start; x: stop (blocks lazy-start); r: restart; k: confirmed kill", " q: confirm quit and stop all apps; Ctrl-C: stop all and quit", " CPU: 100% = one core; RSS sum may double-count shared pages", " Detached/external processes outside launch group: metrics unavailable", " Start uses configured idle timeout; TUI does not pin apps awake"}
+		lines = []string{" HERON HELP (? close)", " Arrows: select app/process or scroll logs; Tab: focus pane", " 1/2/3: maximize apps/processes/logs; same key restores split", " p: process tree; Enter: expand/collapse all; arrows: PID details", " l: logs; e: lifecycle events; /: filter focused apps or logs", " PgUp/PgDn: scroll logs; g: resume tail", " S: start; x: stop (blocks lazy-start); r: restart; k: confirmed kill", " q: confirm quit and stop all apps; Ctrl-C: stop all and quit", " CPU: 100% = one core; RSS sum may double-count shared pages", " Detached/external processes outside launch group: metrics unavailable", " Start uses configured idle timeout; TUI does not pin apps awake"}
 	}
 	lines = pad(lines, h)
 	for i := range lines {
