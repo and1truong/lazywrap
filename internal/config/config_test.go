@@ -432,7 +432,7 @@ func TestLoadComposesNestedResourcesRelativeToDeclaringFile(t *testing.T) {
 	if len(cfg.Apps) != 2 || cfg.Apps["api"].Launch != "api" || cfg.Apps["worker"].Launch != "worker" {
 		t.Fatalf("apps = %#v", cfg.Apps)
 	}
-	if cfg.Apps["api"].Source != filepath.Join(appsDir, "backend.yaml") {
+	if cfg.Apps["api"].Source != canonicalTestPath(t, filepath.Join(appsDir, "backend.yaml")) {
 		t.Fatalf("api source = %q", cfg.Apps["api"].Source)
 	}
 }
@@ -458,7 +458,9 @@ func TestLoadRejectsCircularResourcesWithChain(t *testing.T) {
 	writeConfigFile(t, one, "resources:\n  - lazywrap.yaml\n")
 
 	_, err := Load(root)
-	if err == nil || !strings.Contains(err.Error(), "circular resource include") || !strings.Contains(err.Error(), root+" -> "+one+" -> "+root) {
+	canonicalRoot := canonicalTestPath(t, root)
+	canonicalOne := canonicalTestPath(t, one)
+	if err == nil || !strings.Contains(err.Error(), "circular resource include") || !strings.Contains(err.Error(), canonicalRoot+" -> "+canonicalOne+" -> "+canonicalRoot) {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -491,7 +493,7 @@ func TestLoadReportsMissingResourceWithDeclaringFile(t *testing.T) {
 	writeConfigFile(t, root, "resources:\n  - missing.yaml\n")
 
 	_, err := Load(root)
-	if err == nil || !strings.Contains(err.Error(), `load resource "missing.yaml" declared in `+root) {
+	if err == nil || !strings.Contains(err.Error(), `load resource "missing.yaml" declared in `+canonicalTestPath(t, root)) {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -501,4 +503,13 @@ func writeConfigFile(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func canonicalTestPath(t *testing.T, path string) string {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
 }
