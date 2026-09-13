@@ -111,6 +111,11 @@ Without `-c`, `lazywrap` uses:
 ## Configuration
 
 ```yaml
+# Optional: compose app definitions from other YAML files.
+resources:
+  - apps/backend.yaml
+  - apps/frontend.yaml
+
 port: 3000
 idle: 30m
 startTimeout: 30s
@@ -158,6 +163,37 @@ apps:
 | `logLevel`     | `debug`, `info`, `warning`, or `error`             | `info`   |
 | `startUp`      | Commands run sequentially before traffic is served | `[]`     |
 | `tearDown`     | Best-effort commands run sequentially on shutdown  | `[]`     |
+
+### Composing configuration files
+
+Use `resources` to split app definitions across local YAML files:
+
+```yaml
+# lazywrap.yaml
+port: 3000
+idle: 30m
+resources:
+  - apps/backend.yaml
+  - infrastructure.yaml
+```
+
+```yaml
+# apps/backend.yaml
+apps:
+  api:
+    pwd: ~/code/api
+    launch: go run ./cmd/api
+    port: 1980
+```
+
+Resource files may recursively declare their own `resources`. Paths resolve
+relative to the file that declares them. Resource files may contain only
+`resources` and `apps`; process-wide settings remain in the root configuration.
+
+App IDs must be unique across the complete resource graph. Duplicate IDs and
+circular includes are rejected with the relevant source files. Resources are
+composition only: their order does not imply merge or override behavior. V1
+supports local YAML files, not URLs, globs, directories, inheritance, or patches.
 
 `startUp` and `tearDown` are process-wide hooks. Each command uses the platform shell and inherits lazywrap's working directory and environment, matching service command execution. A failed `startUp` command aborts startup. During shutdown, every `tearDown` command is attempted even when an earlier command fails.
 
