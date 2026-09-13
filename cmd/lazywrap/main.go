@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"syscall"
 	"time"
@@ -156,10 +155,7 @@ func runDoctor(path string, output io.Writer) error {
 	sort.Strings(ids)
 
 	fmt.Fprintf(output, "[ok] configuration: %s\n", path)
-	rootSource, _ := filepath.Abs(path)
-	if canonical, err := filepath.EvalSymlinks(rootSource); err == nil {
-		rootSource = canonical
-	}
+	rootSource, _ := config.CanonicalPath(path)
 	for _, id := range ids {
 		app := cfg.Apps[id]
 		source := ""
