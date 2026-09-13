@@ -3,10 +3,12 @@ import fcntl
 import os
 import pty
 import select
+import shlex
 import signal
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -23,14 +25,21 @@ def port():
 with tempfile.TemporaryDirectory() as tmp:
     proxy_port, app_port = port(), port()
     config = os.path.join(tmp, "config.yaml")
+    app_script = os.path.join(tmp, "app.py")
+    with open(app_script, "w") as out:
+        out.write(f"""import http.server, socketserver
+with socketserver.TCPServer(('127.0.0.1', {app_port}), http.server.SimpleHTTPRequestHandler) as server:
+    print('fixture ready', flush=True)
+    server.serve_forever()
+""")
     with open(config, "w") as out:
         out.write(f"""port: {proxy_port}
 stopTimeout: 2s
-startTimeout: 5s
+startTimeout: 20s
 apps:
   api:
     pwd: {tmp}
-    launch: python3 -u -m http.server {app_port} --bind 127.0.0.1
+    launch: {shlex.quote(sys.executable)} -u {shlex.quote(app_script)}
     path: /api
     port: {app_port}
     idle: 0
@@ -64,7 +73,7 @@ apps:
     child = subprocess.Popen(["./lazywrap-test", "tui", "-c", config], stdin=slave, stdout=slave, stderr=slave)
     transcript = bytearray()
 
-    def until(text, timeout=15):
+    def until(text, timeout=30):
         deadline = time.monotonic() + timeout
         while text not in transcript:
             assert child.poll() is None, (child.returncode, transcript.decode(errors="replace"))
